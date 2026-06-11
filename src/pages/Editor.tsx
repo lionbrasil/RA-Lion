@@ -6,7 +6,7 @@ import { db, storage } from '../lib/firebase';
 import { getLocalProject, updateLocalProject, getLocalHotspots, addLocalHotspot, updateLocalHotspot, deleteLocalHotspot, saveLocalModel, getLocalModelUrl, saveLocalThumbnail } from '../lib/localDb';
 import { useAuth } from '../context/AuthContext';
 import { Project, Hotspot } from '../types';
-import { UploadCloud, Plus, Share2, X, Sparkles, Loader2, ImagePlus } from 'lucide-react';
+import { UploadCloud, Plus, Share2, X, Sparkles, Loader2, ImagePlus, Download, QrCode } from 'lucide-react';
 import { toast } from 'sonner';
 import { QRCodeSVG } from 'qrcode.react';
 import { useDropzone } from 'react-dropzone';
@@ -273,6 +273,39 @@ export default function Editor({ viewOnly = false }: { viewOnly?: boolean }) {
       setIsGeneratingThumbnail(false);
     }
   };
+
+  const downloadQRCode = (elementId: string) => {
+    const svg = document.getElementById(elementId);
+    if (!svg) {
+      toast.error("QR Code não encontrado.");
+      return;
+    }
+    
+    const svgData = new XMLSerializer().serializeToString(svg);
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d");
+    const img = new Image();
+    
+    img.onload = () => {
+      canvas.width = img.width;
+      canvas.height = img.height;
+      
+      if (ctx) {
+         // Create white background
+         ctx.fillStyle = "white";
+         ctx.fillRect(0, 0, canvas.width, canvas.height);
+         ctx.drawImage(img, 0, 0);
+         const pngFile = canvas.toDataURL("image/png");
+         
+         const downloadLink = document.createElement("a");
+         downloadLink.download = `QR-${project?.name || 'Projeto'}.png`;
+         downloadLink.href = pngFile;
+         downloadLink.click();
+      }
+    };
+    
+    img.src = "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(svgData)));
+  };
   
   const handleDeleteHotspot = async (hotspotId: string) => {
     if (viewOnly || !project || !user || !confirm("Remover este marcador?")) return;
@@ -482,6 +515,35 @@ export default function Editor({ viewOnly = false }: { viewOnly?: boolean }) {
                   </div>
 
                   <div>
+                    <h3 className="text-xs font-bold uppercase tracking-widest text-gray-400 mb-4">Acesso Rápido e QR Code</h3>
+                    <div className="bg-lion-black border border-lion-graphite-light rounded-lg p-4 flex flex-col items-center">
+                        <div className="bg-white p-2 rounded mb-3">
+                           <QRCodeSVG id="project-qr-code-main" value={`${window.location.origin}/viewer/${project.id}`} size={120} />
+                        </div>
+                        <p className="text-[10px] text-gray-400 text-center mb-3">Escaneie para acessar o visualizador AR instantaneamente.</p>
+                        <div className="flex w-full gap-2">
+                           <button 
+                             onClick={() => downloadQRCode('project-qr-code-main')} 
+                             className="flex-1 bg-lion-graphite hover:bg-lion-graphite-light text-white text-[10px] font-bold uppercase tracking-widest py-2 px-3 rounded border border-[#2D333B] flex items-center justify-center gap-1 transition-colors"
+                           >
+                              <Download className="w-3 h-3" />
+                              Download
+                           </button>
+                           <button 
+                             onClick={() => {
+                               navigator.clipboard.writeText(`${window.location.origin}/viewer/${project.id}`);
+                               toast.success('Link copiado!');
+                             }} 
+                             className="flex-1 bg-lion-tech-blue/10 hover:bg-lion-tech-blue/20 text-lion-tech-blue border border-lion-tech-blue/30 text-[10px] font-bold uppercase tracking-widest py-2 px-3 flex items-center justify-center gap-1 rounded transition-colors"
+                           >
+                              <Share2 className="w-3 h-3" />
+                              Copiar Link
+                           </button>
+                        </div>
+                    </div>
+                  </div>
+
+                  <div>
                     <h3 className="text-xs font-bold uppercase tracking-widest text-gray-400 mb-4">Ferramentas Interativas</h3>
                     {project.modelUrl ? (
                       <button 
@@ -527,8 +589,13 @@ export default function Editor({ viewOnly = false }: { viewOnly?: boolean }) {
              </button>
              <h2 className="text-xl font-display font-bold mb-6">Compartilhar Experiência</h2>
              
-             <div className="flex justify-center bg-white p-4 rounded-lg mb-6 w-fit mx-auto">
-                <QRCodeSVG value={`${window.location.origin}/viewer/${project.id}`} size={200} />
+             <div className="flex justify-center bg-white p-4 rounded-lg mb-6 w-fit mx-auto relative group">
+                <QRCodeSVG id="project-qr-code-modal" value={`${window.location.origin}/viewer/${project.id}`} size={200} />
+                <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity rounded-lg backdrop-blur-sm">
+                   <button onClick={() => downloadQRCode('project-qr-code-modal')} className="bg-lion-tech-blue text-white px-4 py-2 rounded font-bold text-sm flex items-center gap-2 hover:bg-blue-600">
+                     <Download className="w-4 h-4" /> Download QR
+                   </button>
+                </div>
              </div>
              
              <div className="space-y-2 mb-6">
