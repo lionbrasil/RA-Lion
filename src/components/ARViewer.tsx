@@ -1,6 +1,6 @@
 import React, { forwardRef } from 'react';
 import '@google/model-viewer';
-import { Box, Info, Video, Volume2, Link2 } from 'lucide-react';
+import { Box, Info, Video, Volume2, Link2, Image as ImageIcon } from 'lucide-react';
 import { Hotspot } from '../types';
 
 interface ARViewerProps {
@@ -53,6 +53,7 @@ const ARViewer = forwardRef<any, ARViewerProps>(({
           {hs.type === 'video' && <Video className="w-3 h-3 text-white" />}
           {hs.type === 'audio' && <Volume2 className="w-3 h-3 text-white" />}
           {hs.type === 'link' && <Link2 className="w-3 h-3 text-white" />}
+          {hs.type === 'image' && <ImageIcon className="w-3 h-3 text-white" />}
         </button>
       ))}
 

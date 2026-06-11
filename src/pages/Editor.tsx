@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useParams } from 'react-router-dom';
 import { doc, getDoc, updateDoc, collection, addDoc, query, onSnapshot, deleteDoc, serverTimestamp } from 'firebase/firestore';
 import { ref, uploadBytesResumable, getDownloadURL, uploadString } from 'firebase/storage';
@@ -6,7 +6,7 @@ import { db, storage } from '../lib/firebase';
 import { getLocalProject, updateLocalProject, getLocalHotspots, addLocalHotspot, updateLocalHotspot, deleteLocalHotspot, saveLocalModel, getLocalModelUrl, saveLocalThumbnail } from '../lib/localDb';
 import { useAuth } from '../context/AuthContext';
 import { Project, Hotspot } from '../types';
-import { UploadCloud, Plus, Share2, X, Sparkles, Loader2, ImagePlus, Download, QrCode } from 'lucide-react';
+import { UploadCloud, Plus, Share2, X, Sparkles, Loader2, ImagePlus, Download, QrCode, Info, Video, Volume2, Link2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { QRCodeSVG } from 'qrcode.react';
 import { useDropzone } from 'react-dropzone';
@@ -26,6 +26,8 @@ export default function Editor({ viewOnly = false }: { viewOnly?: boolean }) {
   const [isAddingHotspot, setIsAddingHotspot] = useState(false);
   const [isGeneratingAI, setIsGeneratingAI] = useState(false);
   const [isGeneratingThumbnail, setIsGeneratingThumbnail] = useState(false);
+  const [thumbAspectRatio, setThumbAspectRatio] = useState('16:9');
+  const [thumbImageSize, setThumbImageSize] = useState('1K');
   
   const [showShareModal, setShowShareModal] = useState(false);
   
@@ -89,8 +91,8 @@ export default function Editor({ viewOnly = false }: { viewOnly?: boolean }) {
     const file = acceptedFiles[0];
     if (!file) return;
 
-    if (!file.name.endsWith('.glb') && !file.name.endsWith('.gltf')) {
-      toast.error('Apenas formatos .glb e .gltf são suportados no navegador.');
+    if (!file.name.match(/\.(glb|gltf|png|jpe?g)$/i)) {
+      toast.error('Formatos .glb, .gltf, .png e .jpg suportados no navegador.');
       return;
     }
 
@@ -149,37 +151,56 @@ export default function Editor({ viewOnly = false }: { viewOnly?: boolean }) {
     onDrop,
     accept: {
       'model/gltf-binary': ['.glb'],
-      'model/gltf+json': ['.gltf']
-    },
+      'model/gltf+json': ['.gltf'],
+      'image/png': ['.png'],
+      'image/jpeg': ['.jpg', '.jpeg']
+    } as any,
     maxFiles: 1,
     disabled: isUploading || viewOnly,
   });
 
   const handleModelClick = async (event: any) => {
-    if (viewOnly || !isAddingHotspot || !modelRef.current || !project) return;
+    if (viewOnly || !isAddingHotspot || !project) return;
     
-    // Convert click client coordinates to local model coordinates using model-viewer API
-    const rect = modelRef.current.getBoundingClientRect();
-    const x = event.clientX - rect.left;
-    const y = event.clientY - rect.top;
-    
-    const hit = modelRef.current.positionAndNormalFromPoint(x, y);
-    if (!hit) {
-      toast.error('Clique diretamente no modelo para adicionar o marcador.');
-      return;
+    let hitPositionX, hitPositionY, hitPositionZ = '0';
+    let hitNormalX = '0', hitNormalY = '1', hitNormalZ = '0';
+
+    if (project.modelFormat && ['png', 'jpg', 'jpeg'].includes(project.modelFormat.toLowerCase())) {
+        const rect = event.currentTarget.getBoundingClientRect();
+        const x = event.clientX - rect.left;
+        const y = event.clientY - rect.top;
+        hitPositionX = ((x / rect.width) * 100).toFixed(2);
+        hitPositionY = ((y / rect.height) * 100).toFixed(2);
+    } else {
+        if (!modelRef.current) return;
+        const rect = modelRef.current.getBoundingClientRect();
+        const x = event.clientX - rect.left;
+        const y = event.clientY - rect.top;
+        
+        const hit = modelRef.current.positionAndNormalFromPoint(x, y);
+        if (!hit) {
+          toast.error('Clique diretamente no modelo para adicionar o marcador.');
+          return;
+        }
+        hitPositionX = hit.position.x;
+        hitPositionY = hit.position.y;
+        hitPositionZ = hit.position.z;
+        hitNormalX = hit.normal.x;
+        hitNormalY = hit.normal.y;
+        hitNormalZ = hit.normal.z;
     }
 
     try {
-      if (user.isGuest) {
-         const hs = await addLocalHotspot(project.id, `${hit.position.x} ${hit.position.y} ${hit.position.z}`, `${hit.normal.x} ${hit.normal.y} ${hit.normal.z}`);
+      if (user?.isGuest) {
+         const hs = await addLocalHotspot(project.id, `${hitPositionX} ${hitPositionY} ${hitPositionZ}`, `${hitNormalX} ${hitNormalY} ${hitNormalZ}`);
          setHotspots(prev => [...prev, hs]);
          setIsAddingHotspot(false);
          toast.success('Marcador local adicionado!');
       } else {
          await addDoc(collection(db, `projects/${project.id}/hotspots`), {
            projectId: project.id,
-           position: `${hit.position.x} ${hit.position.y} ${hit.position.z}`,
-           normal: `${hit.normal.x} ${hit.normal.y} ${hit.normal.z}`,
+           position: `${hitPositionX} ${hitPositionY} ${hitPositionZ}`,
+           normal: `${hitNormalX} ${hitNormalY} ${hitNormalZ}`,
            title: 'Nova Informação',
            description: 'Descreva este componente...',
            type: 'info',
@@ -220,17 +241,52 @@ export default function Editor({ viewOnly = false }: { viewOnly?: boolean }) {
     }
     setIsGeneratingAI(true);
     try {
-       const res = await fetch('/api/generate-description', {
+       let imageBase64 = null;
+       if (selectedHotspot.type === 'image' && selectedHotspot.mediaUrl) {
+          try {
+             // Attempt to fetch the image and convert to base64
+             const response = await fetch(selectedHotspot.mediaUrl);
+             const blob = await response.blob();
+             const reader = new FileReader();
+             imageBase64 = await new Promise((resolve) => {
+                 reader.onloadend = () => resolve(reader.result);
+                 reader.readAsDataURL(blob);
+             });
+          } catch(e) {
+             console.log("Could not fetch image for AI analysis", e);
+          }
+       }
+
+       const res = await fetch('/api/analyze-hotspot', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ title: selectedHotspot.title, context: project?.name })
+          body: JSON.stringify({ 
+             title: selectedHotspot.title, 
+             description: selectedHotspot.description,
+             projectContext: project?.name,
+             imageBase64: imageBase64
+          })
        });
        const data = await res.json();
-       if (data.text) {
-          await handleUpdateHotspot(selectedHotspot.id, { description: data.text });
-          toast.success("Descrição gerada pela IA.");
+       
+       if (data.error) throw new Error(data.error);
+
+       if (data.result) {
+          try {
+             // It might come back wrapped in markdown blocks if not handled carefully
+             const cleanJsonString = data.result.replace(/```json\n?|\n?```/gi, '').trim();
+             const parsed = JSON.parse(cleanJsonString);
+             await handleUpdateHotspot(selectedHotspot.id, { 
+                 title: parsed.title || selectedHotspot.title,
+                 description: parsed.description || data.result 
+             });
+          } catch(err) {
+             await handleUpdateHotspot(selectedHotspot.id, { description: data.result });
+          }
+          toast.success("Informações aprimoradas pela IA!");
        }
     } catch (e) {
+       console.error(e);
        toast.error("Erro na geração via IA.");
     } finally {
        setIsGeneratingAI(false);
@@ -244,7 +300,11 @@ export default function Editor({ viewOnly = false }: { viewOnly?: boolean }) {
       const res = await fetch('/api/generate-thumbnail', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt: project.name + (project.description ? ' - ' + project.description : '') })
+        body: JSON.stringify({ 
+           prompt: project.name + (project.description ? ' - ' + project.description : ''),
+           aspectRatio: thumbAspectRatio,
+           imageSize: thumbImageSize
+        })
       });
       const data = await res.json();
       
@@ -307,6 +367,68 @@ export default function Editor({ viewOnly = false }: { viewOnly?: boolean }) {
     img.src = "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(svgData)));
   };
   
+  const handleThumbnailUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !project || !user) return;
+    
+    if (!file.type.startsWith('image/')) {
+       toast.error("Formato inválido. Envie JPG ou PNG.");
+       return;
+    }
+    
+    setIsGeneratingThumbnail(true);
+    try {
+      if (user.isGuest) {
+         const localUrl = await saveLocalThumbnail(project.id, file as any);
+         await handleUpdateProjectSettings({ thumbnailUrl: localUrl });
+      } else {
+         const storageRef = ref(storage, `thumbnails/${user.uid}/${project.id}-${Date.now()}.${file.name.split('.').pop()}`);
+         const uploadTask = uploadBytesResumable(storageRef, file);
+         await new Promise((resolve, reject) => {
+            uploadTask.on('state_changed', null, reject, () => resolve(true));
+         });
+         const downloadUrl = await getDownloadURL(storageRef);
+         await handleUpdateProjectSettings({ thumbnailUrl: downloadUrl });
+      }
+      toast.success("Thumbnail anexado com sucesso!");
+    } catch (err: any) {
+      console.error(err);
+      toast.error("Erro ao fazer upload da imagem.");
+    } finally {
+      setIsGeneratingThumbnail(false);
+    }
+  };
+
+  const handleHotspotMediaUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !project || !user || !selectedHotspot) return;
+    
+    const isImage = file.type.startsWith('image/');
+    if (!isImage) {
+       toast.error("Formato inválido. Envie JPG ou PNG.");
+       return;
+    }
+
+    try {
+        toast.info("Fazendo upload...");
+        if (user.isGuest) {
+             const localUrl = URL.createObjectURL(file);
+             await handleUpdateHotspot(selectedHotspot.id, { mediaUrl: localUrl, type: 'image' });
+        } else {
+             const storageRef = ref(storage, `hotspots/${user.uid}/${project.id}/${selectedHotspot.id}-${Date.now()}.${file.name.split('.').pop()}`);
+             const uploadTask = uploadBytesResumable(storageRef, file);
+             await new Promise((resolve, reject) => {
+                 uploadTask.on('state_changed', null, reject, () => resolve(true));
+             });
+             const downloadUrl = await getDownloadURL(storageRef);
+             await handleUpdateHotspot(selectedHotspot.id, { mediaUrl: downloadUrl, type: 'image' });
+        }
+        toast.success("Imagem anexada com sucesso!");
+    } catch (err: any) {
+        toast.error("Erro ao fazer upload.");
+    }
+  };
+  
   const handleDeleteHotspot = async (hotspotId: string) => {
     if (viewOnly || !project || !user || !confirm("Remover este marcador?")) return;
     try {
@@ -328,9 +450,42 @@ export default function Editor({ viewOnly = false }: { viewOnly?: boolean }) {
   return (
     <div className="flex-1 flex relative overflow-hidden bg-lion-black">
       
-      {/* 3D Model Area */}
+      {/* 3D Model Area / Image Area */}
       <div className="flex-1 relative cursor-crosshair">
         {project.modelUrl ? (
+          project.modelFormat && ['png', 'jpg', 'jpeg'].includes(project.modelFormat.toLowerCase()) ? (
+             <div className="w-full h-full flex items-center justify-center relative overflow-hidden bg-black cad-grid" onClick={handleModelClick}>
+                <img src={project.modelUrl} alt="Model Preview" className="max-w-full max-h-full object-contain pointer-events-none" />
+                {hotspots.map((hs) => (
+                    <div
+                      key={hs.id}
+                      className={`absolute w-6 h-6 rounded-full border-2 border-white flex items-center justify-center transform -translate-x-1/2 -translate-y-1/2 transition-transform hover:scale-125 z-10 cursor-pointer ${selectedHotspot?.id === hs.id ? 'bg-lion-orange scale-125' : 'bg-lion-tech-blue'}`}
+                      style={{ 
+                          left: hs.position.split(' ')[0] + '%', 
+                          top: hs.position.split(' ')[1] + '%'
+                      }}
+                      onClick={(e) => {
+                         e.stopPropagation();
+                         setSelectedHotspot(hs);
+                         if (viewOnly && hs.type === 'link' && hs.linkUrl) {
+                            window.open(hs.linkUrl, '_blank');
+                         }
+                      }}
+                    >
+                      {hs.type === 'info' && <Info className="w-3 h-3 text-white" />}
+                      {hs.type === 'image' && <ImagePlus className="w-3 h-3 text-white" />}
+                      {hs.type === 'video' && <Video className="w-3 h-3 text-white" />}
+                      {hs.type === 'audio' && <Volume2 className="w-3 h-3 text-white" />}
+                      {hs.type === 'link' && <Link2 className="w-3 h-3 text-white" />}
+                    </div>
+                ))}
+                {isAddingHotspot && (
+                   <div className="absolute top-4 left-4 bg-lion-black border border-lion-graphite-light text-white px-4 py-2 rounded text-sm z-20">
+                      Clique na imagem para adicionar o marcador.
+                   </div>
+                )}
+             </div>
+          ) : (
           <ARViewer
             ref={modelRef}
             src={project.modelUrl}
@@ -343,19 +498,20 @@ export default function Editor({ viewOnly = false }: { viewOnly?: boolean }) {
                 window.open(hs.linkUrl, '_blank');
               }
             }}
-            onModelClick={handleModelClick}
+             onModelClick={handleModelClick}
             viewOnly={viewOnly}
           />
+          )
         ) : (
           <div className="absolute inset-0 flex items-center justify-center cad-grid">
             {!viewOnly ? (
               <div {...getRootProps()} className={`flex flex-col items-center justify-center w-[400px] h-[300px] border-2 border-dashed rounded-xl cursor-pointer transition-colors ${isDragActive ? 'border-lion-tech-blue bg-lion-tech-blue/10' : 'border-lion-graphite-light bg-lion-graphite/80 hover:bg-lion-graphite'}`}>
                 <input {...getInputProps()} />
                 <UploadCloud className={`w-12 h-12 mb-4 transition-colors ${isDragActive ? 'text-lion-tech-blue' : 'text-lion-tech-blue/70'}`} />
-                <span className="font-medium text-lg text-white">
-                  {isDragActive ? 'Solte o arquivo aqui...' : 'Arraste um modelo 3D ou clique'}
+                <span className="font-medium text-lg text-white text-center px-4">
+                  {isDragActive ? 'Solte o arquivo aqui...' : 'Arraste um modelo 3D ou Imagem, ou clique'}
                 </span>
-                <span className="text-sm text-gray-500 mt-2">.glb ou .gltf suportados</span>
+                <span className="text-sm text-gray-500 mt-2">.glb, .gltf, .png, .jpg suportados</span>
                 
                 {isUploading && (
                   <div className="w-64 h-2 bg-lion-black rounded-full mt-6 overflow-hidden border border-lion-graphite-light">
@@ -425,6 +581,12 @@ export default function Editor({ viewOnly = false }: { viewOnly?: boolean }) {
                         </div>
                      )}
 
+                     {selectedHotspot.type === 'image' && selectedHotspot.mediaUrl && (
+                        <div className="rounded-lg overflow-hidden border border-gray-800 mt-4">
+                           <img src={selectedHotspot.mediaUrl} alt="Hotspot anexo" className="w-full object-cover" />
+                        </div>
+                     )}
+
                      {selectedHotspot.type === 'audio' && selectedHotspot.mediaUrl && (
                         <div className="bg-lion-black p-4 rounded-lg border border-gray-800 mt-4">
                            <audio src={selectedHotspot.mediaUrl} controls className="w-full" />
@@ -449,16 +611,31 @@ export default function Editor({ viewOnly = false }: { viewOnly?: boolean }) {
                         <label className="block text-xs text-gray-400 mb-1">Tipo de Interação</label>
                         <select value={selectedHotspot.type} onChange={e => handleUpdateHotspot(selectedHotspot.id, { type: e.target.value as any })} className="w-full bg-lion-black border border-gray-800 rounded p-2 text-sm focus:border-lion-tech-blue outline-none">
                            <option value="info">Texto / Informação</option>
+                           <option value="image">Imagem</option>
                            <option value="video">Vídeo</option>
                            <option value="audio">Áudio (Efeito/Narração)</option>
                            <option value="link">Link Externo</option>
                         </select>
                      </div>
                      
-                     {(selectedHotspot.type === 'video' || selectedHotspot.type === 'audio' || selectedHotspot.type === 'link') && (
+                     {(selectedHotspot.type === 'video' || selectedHotspot.type === 'audio' || selectedHotspot.type === 'link' || selectedHotspot.type === 'image') && (
                        <div>
-                          <label className="block text-xs text-gray-400 mb-1">URL (Mídia ou Link)</label>
-                          <input type="text" value={selectedHotspot.mediaUrl || selectedHotspot.linkUrl || ''} onChange={e => handleUpdateHotspot(selectedHotspot.id, selectedHotspot.type === 'link' ? { linkUrl: e.target.value } : { mediaUrl: e.target.value })} placeholder="https://" className="w-full bg-lion-black border border-gray-800 rounded p-2 text-sm focus:border-lion-tech-blue outline-none" />
+                          <label className="block text-xs text-gray-400 mb-1">URL (Mídia ou Link) ou Anexar</label>
+                          <div className="flex gap-2">
+                             <input type="text" value={selectedHotspot.mediaUrl || selectedHotspot.linkUrl || ''} onChange={e => handleUpdateHotspot(selectedHotspot.id, selectedHotspot.type === 'link' ? { linkUrl: e.target.value } : { mediaUrl: e.target.value })} placeholder="https://" className="w-full bg-lion-black border border-gray-800 rounded p-2 text-sm focus:border-lion-tech-blue outline-none" />
+                             {(selectedHotspot.type === 'image') && (
+                                <label className="bg-lion-graphite hover:bg-lion-graphite-light text-lion-tech-blue px-3 rounded border border-[#2D333B] flex items-center justify-center cursor-pointer transition-colors" title="Anexar Imagem">
+                                   <UploadCloud className="w-4 h-4" />
+                                   <input type="file" accept="image/png, image/jpeg, image/jpg" className="hidden" onChange={handleHotspotMediaUpload} />
+                                </label>
+                             )}
+                          </div>
+                          {(selectedHotspot.type === 'image' && selectedHotspot.mediaUrl) && (
+                              <div className="mt-2 text-center rounded border border-gray-800 overflow-hidden relative">
+                                  <img src={selectedHotspot.mediaUrl} alt="Preview do anexo" className="w-full max-h-[150px] object-cover" />
+                                  <button onClick={() => handleUpdateHotspot(selectedHotspot.id, { mediaUrl: '' })} className="absolute top-2 right-2 bg-black/70 text-white p-1 rounded-full hover:bg-red-500"><X className="w-3 h-3" /></button>
+                              </div>
+                          )}
                        </div>
                      )}
 
@@ -492,21 +669,67 @@ export default function Editor({ viewOnly = false }: { viewOnly?: boolean }) {
                              {project.thumbnailUrl ? (
                                <div className="aspect-video relative">
                                  <img src={project.thumbnailUrl} alt="Thumbnail preview" className="w-full h-full object-cover" />
-                                 <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center backdrop-blur-sm">
-                                    <button onClick={generateThumbnail} disabled={isGeneratingThumbnail} className="text-white text-xs font-bold uppercase tracking-widest flex items-center gap-2 hover:text-lion-tech-blue">
+                                 <div className="absolute inset-0 bg-black/80 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center backdrop-blur-sm gap-3 px-4">
+                                    <div className="flex gap-2 w-full max-w-[200px]">
+                                       <select value={thumbAspectRatio} onChange={e => setThumbAspectRatio(e.target.value)} className="bg-lion-graphite text-xs text-white p-1 rounded border border-gray-600 flex-1">
+                                          <option value="1:1">1:1</option>
+                                          <option value="4:3">4:3</option>
+                                          <option value="16:9">16:9</option>
+                                          <option value="21:9">21:9</option>
+                                          <option value="3:4">3:4</option>
+                                          <option value="9:16">9:16</option>
+                                          <option value="2:3">2:3</option>
+                                          <option value="3:2">3:2</option>
+                                       </select>
+                                       <select value={thumbImageSize} onChange={e => setThumbImageSize(e.target.value)} className="bg-lion-graphite text-xs text-white p-1 rounded border border-gray-600 flex-1">
+                                          <option value="1K">1K</option>
+                                          <option value="2K">2K</option>
+                                          <option value="4K">4K</option>
+                                       </select>
+                                    </div>
+                                    <button onClick={generateThumbnail} disabled={isGeneratingThumbnail} className="bg-lion-tech-blue text-white w-full max-w-[200px] text-[10px] font-bold uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-blue-600 py-2 rounded">
                                        {isGeneratingThumbnail ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
                                        Regerar IA
                                     </button>
+                                    <label className="text-white text-[10px] font-bold uppercase tracking-widest flex items-center gap-2 hover:text-lion-tech-blue cursor-pointer bg-lion-graphite w-full max-w-[200px] justify-center py-2 rounded border border-gray-600">
+                                       <UploadCloud className="w-4 h-4" />
+                                       Anexar Imagem
+                                       <input type="file" accept="image/png, image/jpeg, image/jpg" className="hidden" onChange={handleThumbnailUpload} />
+                                    </label>
                                  </div>
                                </div>
                              ) : (
                                <div className="aspect-video flex flex-col items-center justify-center p-4">
                                   <ImagePlus className="w-8 h-8 text-lion-graphite-light mb-2" />
-                                  <button onClick={generateThumbnail} disabled={isGeneratingThumbnail} className="bg-lion-graphite hover:bg-lion-graphite-light text-lion-tech-blue text-[10px] font-bold uppercase tracking-widest py-2 px-4 rounded border border-[#2D333B] flex items-center gap-2 transition-colors">
-                                     {isGeneratingThumbnail ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
-                                     {isGeneratingThumbnail ? 'Gerando...' : 'Gerar com IA'}
-                                  </button>
-                                  <p className="text-[9px] text-gray-500 text-center mt-2">Dica: Adicione uma boa descrição ao título do projeto antes de gerar.</p>
+                                  <div className="flex gap-2 w-full max-w-[200px] mb-2">
+                                     <select value={thumbAspectRatio} onChange={e => setThumbAspectRatio(e.target.value)} className="bg-lion-graphite text-xs text-white p-2 rounded border border-gray-600 flex-1">
+                                        <option value="1:1">1:1</option>
+                                        <option value="4:3">4:3</option>
+                                        <option value="16:9">16:9</option>
+                                        <option value="21:9">21:9</option>
+                                        <option value="3:4">3:4</option>
+                                        <option value="9:16">9:16</option>
+                                        <option value="2:3">2:3</option>
+                                        <option value="3:2">3:2</option>
+                                     </select>
+                                     <select value={thumbImageSize} onChange={e => setThumbImageSize(e.target.value)} className="bg-lion-graphite text-xs text-white p-2 rounded border border-gray-600 flex-1">
+                                        <option value="1K">1K</option>
+                                        <option value="2K">2K</option>
+                                        <option value="4K">4K</option>
+                                     </select>
+                                  </div>
+                                  <div className="flex gap-2 w-full max-w-[200px] flex-col">
+                                     <button onClick={generateThumbnail} disabled={isGeneratingThumbnail} className="w-full bg-lion-tech-blue hover:bg-blue-600 text-white text-[10px] font-bold uppercase tracking-widest py-2 px-4 rounded flex justify-center items-center gap-2 transition-colors">
+                                        {isGeneratingThumbnail ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+                                        {isGeneratingThumbnail ? 'Gerando...' : 'Gerar com IA'}
+                                     </button>
+                                     <label className="w-full bg-lion-graphite hover:bg-[#3d444d] text-lion-tech-blue text-[10px] font-bold uppercase tracking-widest py-2 px-4 rounded border border-[#2D333B] flex justify-center items-center gap-2 transition-colors cursor-pointer">
+                                        <UploadCloud className="w-3 h-3" />
+                                        Fazer Upload
+                                        <input type="file" accept="image/png, image/jpeg, image/jpg" className="hidden" onChange={handleThumbnailUpload} />
+                                     </label>
+                                  </div>
+                                  <p className="text-[9px] text-gray-500 text-center mt-3">Gere com IA ou faça upload (PNG/JPG).</p>
                                </div>
                              )}
                           </div>

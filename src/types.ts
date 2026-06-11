@@ -1,3 +1,5 @@
+import React from 'react';
+
 export interface Project {
   id: string;
   ownerId: string;
@@ -19,18 +21,10 @@ export interface Hotspot {
   normal: string;   // e.g., "0 1 0"
   title: string;
   description: string;
-  type: "info" | "video" | "audio" | "link";
+  type: "info" | "video" | "audio" | "link" | "image";
   mediaUrl?: string;
   linkUrl?: string;
   color?: string;
   createdAt: any;
   updatedAt: any;
-}
-
-declare global {
-  namespace JSX {
-    interface IntrinsicElements {
-      'model-viewer': any;
-    }
-  }
 }

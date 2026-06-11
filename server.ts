@@ -11,28 +11,47 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
-  app.use(express.json());
+  app.use(express.json({ limit: '50mb' }));
 
   // API Routes
-  app.post('/api/generate-description', async (req, res) => {
+  app.post('/api/analyze-hotspot', async (req, res) => {
     try {
-      const { title, context } = req.body;
-      const prompt = `Gere uma descrição técnica e detalhada para um componente de máquina industrial.
-Título do Componente: ${title}
-Contexto do Projeto: ${context || 'Equipamento pesado / Manutenção Industrial'}
+      const { title, description, projectContext, imageBase64 } = req.body;
       
-Instruções:
-- Seja direto, profissional e focado em engenharia/manutenção.
-- Cite possíveis pontos de falha ou inspeção visual recomendada.
-- Máximo de 3 parágrafos.
-- Aja como um sistema avançado de IA da plataforma RA Lion.`;
+      const parts = [];
+      const prompt = `You are an advanced industrial engineering AI assistant. Analyze the information provided about a specific component or hotspot in a 3D/AR model.
+Project Context: ${projectContext || 'Industrial Equipment'}
+Current Title: ${title || 'None'}
+Current Description: ${description || 'None'}
+
+Please provide an enhanced, professional, and highly technical title and description for this component.
+If an image is provided, analyze the image deeply to identify the component, its material, purpose, visible wear, or key inspection points.
+Format your response as a JSON object with two fields: "title" and "description".`;
+
+      parts.push({ text: prompt });
+      
+      if (imageBase64) {
+         // Assuming imageBase64 comes as "data:image/jpeg;base64,......."
+         const mimeType = imageBase64.split(';')[0].split(':')[1];
+         const data = imageBase64.split(',')[1];
+         parts.push({
+            inlineData: {
+               data,
+               mimeType
+            }
+         });
+      }
 
       const response = await ai.models.generateContent({
         model: 'gemini-3.1-pro-preview',
-        contents: prompt,
+        contents: { parts },
+        config: {
+           responseMimeType: 'application/json',
+           thinkingConfig: { thinkingBudgetTokens: 1024 }, // Or just not specify for default high thinking
+        }
       });
 
-      res.json({ text: response.text });
+      res.json({ result: response.text });
     } catch (e: any) {
       console.error(e);
       res.status(500).json({ error: e.message });
@@ -41,10 +60,10 @@ Instruções:
 
   app.post('/api/generate-thumbnail', async (req, res) => {
     try {
-      const { prompt } = req.body;
+      const { prompt, aspectRatio = '16:9', imageSize = '1K' } = req.body;
       
       const response = await ai.models.generateContent({
-        model: 'gemini-3.1-flash-image',
+        model: 'gemini-3-pro-image-preview', // High quality model
         contents: {
           parts: [
             { text: `A high-quality, cinematic, highly detailed 3D render of an industrial machine component matching this description: ${prompt}. Dark background, studio lighting, photorealistic.` },
@@ -52,8 +71,8 @@ Instruções:
         },
         config: {
           imageConfig: {
-            aspectRatio: "16:9",
-            imageSize: "1K"
+            aspectRatio: aspectRatio,
+            imageSize: imageSize
           }
         }
       });
