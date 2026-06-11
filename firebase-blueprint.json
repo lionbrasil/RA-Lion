@@ -1,0 +1,70 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile and settings",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string" },
+        "displayName": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "role": { "type": "string", "enum": ["admin", "editor", "viewer"] },
+        "createdAt": { "type": "string", "format": "timestamp" },
+        "updatedAt": { "type": "string", "format": "timestamp" }
+      },
+      "required": ["email", "role", "createdAt", "updatedAt"]
+    },
+    "Project": {
+      "title": "3D Project",
+      "description": "A WebAR project instance containing a 3D model and its metadata",
+      "type": "object",
+      "properties": {
+        "ownerId": { "type": "string" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "modelUrl": { "type": "string" },
+        "modelFormat": { "type": "string" },
+        "thumbnailUrl": { "type": "string" },
+        "backgroundColor": { "type": "string" },
+        "lighting": { "type": "string" },
+        "isPublic": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "timestamp" },
+        "updatedAt": { "type": "string", "format": "timestamp" }
+      },
+      "required": ["ownerId", "name", "createdAt", "updatedAt"]
+    },
+    "Hotspot": {
+      "title": "Hotspot",
+      "description": "Interactive markers attached to a 3D model",
+      "type": "object",
+      "properties": {
+        "projectId": { "type": "string" },
+        "position": { "type": "string" },
+        "normal": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "type": { "type": "string", "enum": ["info", "video", "audio", "link"] },
+        "mediaUrl": { "type": "string" },
+        "linkUrl": { "type": "string" },
+        "color": { "type": "string" },
+        "createdAt": { "type": "string", "format": "timestamp" },
+        "updatedAt": { "type": "string", "format": "timestamp" }
+      },
+      "required": ["projectId", "position", "title", "createdAt", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "users/{userId}": {
+      "schema": { "$ref": "User" },
+      "description": "User profiles"
+    },
+    "projects/{projectId}": {
+      "schema": { "$ref": "Project" },
+      "description": "User projects containing models and AR experiences"
+    },
+    "projects/{projectId}/hotspots/{hotspotId}": {
+      "schema": { "$ref": "Hotspot" },
+      "description": "Hotspots for a specific project"
+    }
+  }
+}

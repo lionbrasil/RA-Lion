@@ -1,0 +1,27 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Space+Grotesk:wght@400;500;600;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --color-lion-black: #0F1115;
+  --color-lion-graphite: #15181E;
+  --color-lion-header: #1A1D23;
+  --color-lion-graphite-light: #2D333B;
+  --color-lion-tech-blue: #00AAFF;
+  --color-lion-tech-blue-glow: rgba(0, 170, 255, 0.4);
+  --color-lion-orange: #FF6600;
+  
+  --font-sans: "Inter", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", monospace;
+  --font-display: "Space Grotesk", sans-serif;
+}
+
+body {
+  background-color: var(--color-lion-black);
+  color: #e5e7eb;
+  font-family: var(--font-sans);
+}
+
+.cad-grid {
+  background-image: radial-gradient(circle, #333 1px, transparent 1px);
+  background-size: 20px 20px;
+}

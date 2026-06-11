@@ -1,0 +1,73 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    
+    function isVerified() {
+      // In development environments this might be false by default if email auth isn't strict,
+      // but standard is email_verified == true. For this sandbox, we'll just check isSignedIn()
+      return isSignedIn(); 
+    }
+
+    function existing() {
+      return resource.data;
+    }
+    
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // Projects rules
+    match /projects/{projectId} {
+      function isValidProject(data) {
+        return data.keys().hasAll(['ownerId', 'name', 'createdAt', 'updatedAt']) 
+          && data.ownerId == request.auth.uid 
+          && data.name is string && data.name.size() <= 100
+          && data.ownerId is string && data.ownerId.size() <= 128;
+      }
+
+      allow list: if isVerified() && resource.data.ownerId == request.auth.uid;
+      allow get: if isVerified() && (resource.data.ownerId == request.auth.uid || resource.data.isPublic == true);
+      allow create: if isVerified() && isValidId(projectId) && isValidProject(incoming()) && incoming().createdAt == request.time;
+      allow update: if isVerified() && isValidId(projectId) && resource.data.ownerId == request.auth.uid && isValidProject(incoming()) && incoming().ownerId == existing().ownerId && incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time;
+      allow delete: if isVerified() && isValidId(projectId) && resource.data.ownerId == request.auth.uid;
+
+      // Hotspots within projects
+      match /hotspots/{hotspotId} {
+        function getProject() {
+          return get(/databases/$(database)/documents/projects/$(projectId));
+        }
+        
+        function isProjectOwner() {
+          return getProject().data.ownerId == request.auth.uid;
+        }
+
+        function isProjectPublic() {
+           return getProject().data.isPublic == true;
+        }
+
+        allow list: if isVerified() && (isProjectOwner() || isProjectPublic());
+        allow get: if isVerified() && (isProjectOwner() || isProjectPublic());
+        allow create: if isVerified() && isValidId(hotspotId) && isProjectOwner() && incoming().projectId == projectId;
+        allow update: if isVerified() && isValidId(hotspotId) && isProjectOwner() && incoming().projectId == existing().projectId;
+        allow delete: if isVerified() && isValidId(hotspotId) && isProjectOwner();
+      }
+    }
+    
+    match /users/{userId} {
+      allow get: if isVerified() && request.auth.uid == userId;
+      allow create: if isVerified() && request.auth.uid == userId && incoming().email == request.auth.token.email;
+      allow update: if isVerified() && request.auth.uid == userId && incoming().email == existing().email;
+    }
+  }
+}

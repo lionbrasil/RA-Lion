@@ -1,0 +1,6 @@
+{
+  "name": "RA Lion",
+  "description": "Plataforma web moderna de Realidade Aumentada para componentes industriais 3D",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
