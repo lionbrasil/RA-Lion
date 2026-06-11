@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { Link, useNavigate } from 'react-router-dom';
-import { Plus, Box, Clock, Trash, Play, Wrench } from 'lucide-react';
+import { Plus, Box, Clock, Trash, Play, Wrench, Upload } from 'lucide-react';
 import { motion } from 'motion/react';
 import { toast } from 'sonner';
-import { getLocalProjects, createLocalProject, deleteLocalProject } from '../lib/localDb';
+import { getLocalProjects, createLocalProject, deleteLocalProject, importProjectData } from '../lib/localDb';
 
 export default function Dashboard() {
   const { user } = useAuth();
@@ -12,14 +12,30 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
 
-  useEffect(() => {
-    if (!user) return;
+  const loadProjects = () => {
     getLocalProjects().then(data => {
-      const userProjects = data.filter(p => p.ownerId === user.uid);
+      const userProjects = data.filter(p => p.ownerId === user?.uid);
       setProjects(userProjects.sort((a,b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()));
       setLoading(false);
     });
+  };
+
+  useEffect(() => {
+    if (!user) return;
+    loadProjects();
   }, [user]);
+
+  const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      await importProjectData(file);
+      toast.success('Projeto importado com sucesso!');
+      loadProjects();
+    } catch (err) {
+      toast.error('Importação falhou. Arquivo inválido.');
+    }
+  };
 
   const createProject = async () => {
     if (!user) return;
@@ -52,12 +68,18 @@ export default function Dashboard() {
             <h1 className="text-3xl font-display font-bold">Início</h1>
             <p className="text-gray-400 mt-1">Gerencie seus projetos 3D e experiências AR</p>
           </div>
-          <button 
-            onClick={createProject}
-            className="bg-lion-tech-blue hover:bg-blue-600 text-white px-4 py-2 rounded font-medium flex items-center gap-2 border border-blue-400/20"
-          >
-            <Plus className="w-5 h-5" /> Novo Projeto
-          </button>
+          <div className="flex gap-4">
+            <label className="bg-lion-graphite hover:bg-[#3d444d] text-gray-300 px-4 py-2 rounded font-medium flex items-center gap-2 border border-[#2D333B] cursor-pointer">
+              <Upload className="w-5 h-5" /> Importar
+              <input type="file" accept=".json" onChange={handleImport} className="hidden" />
+            </label>
+            <button 
+              onClick={createProject}
+              className="bg-lion-tech-blue hover:bg-blue-600 text-white px-4 py-2 rounded font-medium flex items-center gap-2 border border-blue-400/20"
+            >
+              <Plus className="w-5 h-5" /> Novo Projeto
+            </button>
+          </div>
         </div>
 
         {loading ? (

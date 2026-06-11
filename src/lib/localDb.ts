@@ -97,8 +97,69 @@ export const saveLocalThumbnail = async (projectId: string, blob: Blob) => {
   return URL.createObjectURL(blob);
 };
 
-export const getLocalThumbnailUrl = async (projectId: string) => {
-  const blob: Blob | undefined = await get(`thumbnail_${projectId}`);
-  if (blob) return URL.createObjectURL(blob);
-  return null;
+export const exportProjectData = async (projectId: string) => {
+  const project = await getLocalProject(projectId);
+  const hotspots = await getLocalHotspots(projectId);
+  const modelFile: File | undefined = await get(`model_${projectId}`);
+  const thumbnailBlob: Blob | undefined = await get(`thumbnail_${projectId}`);
+
+  const toBase64 = (blob: Blob) => new Promise<string>((resolve) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(reader.result as string);
+    reader.readAsDataURL(blob);
+  });
+
+  const modelBase64 = modelFile ? await toBase64(modelFile) : null;
+  const thumbnailBase64 = thumbnailBlob ? await toBase64(thumbnailBlob) : null;
+
+  const exportData = {
+    project,
+    hotspots,
+    modelBase64,
+    thumbnailBase64,
+    modelType: modelFile?.type || '',
+    modelName: modelFile?.name || '',
+    thumbnailType: thumbnailBlob?.type || ''
+  };
+
+  const blob = new Blob([JSON.stringify(exportData)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `project_${projectId}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+};
+
+export const importProjectData = async (file: File) => {
+  const text = await file.text();
+  const data = JSON.parse(text);
+
+  const fromBase64 = async (b64: string, type: string, name?: string) => {
+    const res = await fetch(b64);
+    const blob = await res.blob();
+    return name ? new File([blob], name, { type }) : blob;
+  };
+
+  if (data.project) {
+    const existing = await getLocalProjects();
+    const filtered = existing.filter(p => p.id !== data.project.id);
+    await setLocalProjects([...filtered, data.project]);
+  }
+
+  if (data.hotspots) {
+    const existingH = (await get('hotspots')) as Hotspot[] || [];
+    const filteredH = existingH.filter(h => h.projectId !== data.project.id);
+    await set('hotspots', [...filteredH, ...data.hotspots]);
+  }
+
+  if (data.modelBase64) {
+    const model = await fromBase64(data.modelBase64, data.modelType, data.modelName);
+    await set(`model_${data.project.id}`, model);
+  }
+
+  if (data.thumbnailBase64) {
+    const thumb = await fromBase64(data.thumbnailBase64, data.thumbnailType);
+    await set(`thumbnail_${data.project.id}`, thumb);
+  }
 };

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { getLocalProject, updateLocalProject, getLocalHotspots, addLocalHotspot, updateLocalHotspot, deleteLocalHotspot, saveLocalModel, getLocalModelUrl, saveLocalThumbnail } from '../lib/localDb';
+import { getLocalProject, updateLocalProject, getLocalHotspots, addLocalHotspot, updateLocalHotspot, deleteLocalHotspot, saveLocalModel, getLocalModelUrl, saveLocalThumbnail, exportProjectData } from '../lib/localDb';
 import { useAuth } from '../context/AuthContext';
 import { Project, Hotspot } from '../types';
 import { UploadCloud, Plus, Share2, X, Sparkles, Loader2, ImagePlus, Download, QrCode, Info, Video, Volume2, Link2 } from 'lucide-react';
@@ -425,13 +425,12 @@ export default function Editor({ viewOnly = false }: { viewOnly?: boolean }) {
               <h3 className="text-xs font-bold uppercase tracking-widest text-lion-orange">Properties</h3>
               <div className="flex gap-2">
                 <button 
-                   onClick={() => {
-                      if (user?.isGuest) {
-                         toast.warning("Projetos locais (Visitante) não podem ser compartilhados via link.");
-                         return;
-                      }
-                      setShowShareModal(true);
-                   }} 
+                   onClick={() => exportProjectData(project.id)} 
+                   className="text-gray-400 text-[10px] font-bold hover:text-white uppercase transition-colors flex items-center pr-2 border-r border-gray-700" title="Salvar Projeto para Arquivo Local">
+                  Salvar
+                </button>
+                <button 
+                   onClick={() => setShowShareModal(true)} 
                    className="text-lion-tech-blue text-xs font-bold hover:text-white uppercase transition-colors" title="Compartilhar">
                   Share
                 </button>
