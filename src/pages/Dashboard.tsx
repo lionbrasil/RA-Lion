@@ -3,9 +3,11 @@ import { collection, query, where, orderBy, onSnapshot, addDoc, serverTimestamp,
 import { db } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
 import { Link, useNavigate } from 'react-router-dom';
-import { Plus, Box, Clock, MoreVertical, Trash, Play } from 'lucide-react';
+import { Plus, Box, Clock, Trash, Play } from 'lucide-react';
 import { motion } from 'motion/react';
 import { toast } from 'sonner';
+import { getLocalProjects, createLocalProject, deleteLocalProject } from '../lib/localDb';
+import { Wrench } from 'lucide-react';
 
 export default function Dashboard() {
   const { user } = useAuth();
@@ -15,36 +17,51 @@ export default function Dashboard() {
 
   useEffect(() => {
     if (!user) return;
-    const q = query(
-      collection(db, 'projects'),
-      where('ownerId', '==', user.uid),
-      orderBy('updatedAt', 'desc')
-    );
+    
+    if (user.isGuest) {
+      getLocalProjects().then(data => {
+        const userProjects = data.filter(p => p.ownerId === user.uid);
+        setProjects(userProjects.sort((a,b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()));
+        setLoading(false);
+      });
+    } else {
+      const q = query(
+        collection(db, 'projects'),
+        where('ownerId', '==', user.uid),
+        orderBy('updatedAt', 'desc')
+      );
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      setProjects(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-      setLoading(false);
-    });
+      const unsubscribe = onSnapshot(q, (snapshot) => {
+        setProjects(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+        setLoading(false);
+      });
 
-    return () => unsubscribe();
+      return () => unsubscribe();
+    }
   }, [user]);
 
   const createProject = async () => {
     if (!user) return;
     try {
-      const docRef = await addDoc(collection(db, 'projects'), {
-        ownerId: user.uid,
-        name: 'Novo Projeto Industrial',
-        description: 'Descrição do equipamento',
-        modelUrl: '',
-        modelFormat: '',
-        backgroundColor: '#1a1a1a',
-        isPublic: false,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp()
-      });
-      navigate(`/editor/${docRef.id}`);
-      toast.success('Projeto criado com sucesso!');
+      if (user.isGuest) {
+        const id = await createLocalProject(user.uid);
+        navigate(`/editor/${id}`);
+        toast.success('Projeto criado localmente!');
+      } else {
+        const docRef = await addDoc(collection(db, 'projects'), {
+          ownerId: user.uid,
+          name: 'Novo Projeto Industrial',
+          description: 'Descrição do equipamento',
+          modelUrl: '',
+          modelFormat: '',
+          backgroundColor: '#15181E',
+          isPublic: false,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp()
+        });
+        navigate(`/editor/${docRef.id}`);
+        toast.success('Projeto criado com sucesso!');
+      }
     } catch (e) {
       console.error(e);
       toast.error('Erro ao criar projeto');
@@ -54,8 +71,14 @@ export default function Dashboard() {
   const deleteProject = async (id: string) => {
     if(!confirm("Tem certeza que deseja excluir este projeto?")) return;
     try {
-      await deleteDoc(doc(db, 'projects', id));
-      toast.success('Projeto excluído.');
+      if (user?.isGuest) {
+        await deleteLocalProject(id);
+        setProjects(prev => prev.filter(p => p.id !== id));
+        toast.success('Projeto local excluído.');
+      } else {
+        await deleteDoc(doc(db, 'projects', id));
+        toast.success('Projeto excluído.');
+      }
     } catch(e) {
       toast.error('Erro ao excluir');
     }
@@ -124,7 +147,7 @@ export default function Dashboard() {
                   </div>
                   <div className="flex items-center gap-2 text-xs text-gray-500 font-mono">
                     <Clock className="w-3 h-3" />
-                    {p.updatedAt?.toDate().toLocaleDateString('pt-BR') || 'Recente'}
+                    {p.updatedAt?.toDate ? p.updatedAt.toDate().toLocaleDateString('pt-BR') : new Date(p.updatedAt).toLocaleDateString('pt-BR')}
                   </div>
                 </div>
               </motion.div>
@@ -135,6 +158,3 @@ export default function Dashboard() {
     </div>
   );
 }
-
-// Needed Wrench icon to be imported
-import { Wrench } from 'lucide-react';

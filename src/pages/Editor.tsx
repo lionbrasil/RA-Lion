@@ -1,11 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams } from 'react-router-dom';
 import { doc, getDoc, updateDoc, collection, addDoc, query, onSnapshot, deleteDoc, serverTimestamp } from 'firebase/firestore';
-import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
+import { ref, uploadBytesResumable, getDownloadURL, uploadString } from 'firebase/storage';
 import { db, storage } from '../lib/firebase';
+import { getLocalProject, updateLocalProject, getLocalHotspots, addLocalHotspot, updateLocalHotspot, deleteLocalHotspot, saveLocalModel, getLocalModelUrl, saveLocalThumbnail } from '../lib/localDb';
 import { useAuth } from '../context/AuthContext';
 import { Project, Hotspot } from '../types';
-import { UploadCloud, Plus, Share2, X, Sparkles, Loader2 } from 'lucide-react';
+import { UploadCloud, Plus, Share2, X, Sparkles, Loader2, ImagePlus } from 'lucide-react';
 import { toast } from 'sonner';
 import { QRCodeSVG } from 'qrcode.react';
 import { useDropzone } from 'react-dropzone';
@@ -24,6 +25,7 @@ export default function Editor({ viewOnly = false }: { viewOnly?: boolean }) {
   const [selectedHotspot, setSelectedHotspot] = useState<Hotspot | null>(null);
   const [isAddingHotspot, setIsAddingHotspot] = useState(false);
   const [isGeneratingAI, setIsGeneratingAI] = useState(false);
+  const [isGeneratingThumbnail, setIsGeneratingThumbnail] = useState(false);
   
   const [showShareModal, setShowShareModal] = useState(false);
   
@@ -31,6 +33,25 @@ export default function Editor({ viewOnly = false }: { viewOnly?: boolean }) {
 
   useEffect(() => {
     if (!projectId) return;
+
+    if (user?.isGuest) {
+      const loadLocal = async () => {
+        const p = await getLocalProject(projectId);
+        if (p) {
+          if (p.modelFormat) {
+             const url = await getLocalModelUrl(projectId);
+             if (url) p.modelUrl = url;
+          }
+          setProject(p);
+        } else if (!viewOnly) {
+           toast.error("Projeto local não encontrado.");
+        }
+        const hs = await getLocalHotspots(projectId);
+        setHotspots(hs);
+      };
+      loadLocal();
+      return;
+    }
 
     const fetchProject = async () => {
       const docRef = doc(db, 'projects', projectId);
@@ -47,7 +68,21 @@ export default function Editor({ viewOnly = false }: { viewOnly?: boolean }) {
     });
 
     return () => unsubscribe();
-  }, [projectId]);
+  }, [projectId, user]);
+
+  const handleUpdateProjectSettings = async (updates: Partial<Project>) => {
+    if (!project || !user) return;
+    setProject({ ...project, ...updates });
+    try {
+      if (user.isGuest) {
+        await updateLocalProject(project.id, updates);
+      } else {
+        await updateDoc(doc(db, `projects/${project.id}`), updates);
+      }
+    } catch(e) {
+      toast.error("Erro ao atualizar projeto");
+    }
+  };
 
   const onDrop = async (acceptedFiles: File[]) => {
     if (viewOnly || !project || !user) return;
@@ -60,6 +95,29 @@ export default function Editor({ viewOnly = false }: { viewOnly?: boolean }) {
     }
 
     setIsUploading(true);
+
+    if (user.isGuest) {
+       // Local file upload routine
+       let prog = 0;
+       const interval = setInterval(() => { prog += 10; setUploadProgress(prog); if(prog >= 100) clearInterval(interval); }, 150);
+       
+       try {
+          const localUrl = await saveLocalModel(projectId!, file);
+          await updateLocalProject(projectId!, { modelFormat: file.name.split('.').pop() });
+          
+          clearInterval(interval);
+          setUploadProgress(100);
+          setProject(prev => prev ? { ...prev, modelUrl: localUrl } : null);
+          setIsUploading(false);
+          setUploadProgress(0);
+          toast.success('Upload local concluído!');
+       } catch (e) {
+          toast.error("Erro ao salvar localmente.");
+          setIsUploading(false);
+       }
+       return;
+    }
+
     const storageRef = ref(storage, `models/${user.uid}/${projectId}/${file.name}`);
     const uploadTask = uploadBytesResumable(storageRef, file);
 
@@ -112,18 +170,25 @@ export default function Editor({ viewOnly = false }: { viewOnly?: boolean }) {
     }
 
     try {
-      await addDoc(collection(db, `projects/${project.id}/hotspots`), {
-        projectId: project.id,
-        position: `${hit.position.x} ${hit.position.y} ${hit.position.z}`,
-        normal: `${hit.normal.x} ${hit.normal.y} ${hit.normal.z}`,
-        title: 'Nova Informação',
-        description: 'Descreva este componente...',
-        type: 'info',
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp()
-      });
-      setIsAddingHotspot(false);
-      toast.success('Marcador adicionado!');
+      if (user.isGuest) {
+         const hs = await addLocalHotspot(project.id, `${hit.position.x} ${hit.position.y} ${hit.position.z}`, `${hit.normal.x} ${hit.normal.y} ${hit.normal.z}`);
+         setHotspots(prev => [...prev, hs]);
+         setIsAddingHotspot(false);
+         toast.success('Marcador local adicionado!');
+      } else {
+         await addDoc(collection(db, `projects/${project.id}/hotspots`), {
+           projectId: project.id,
+           position: `${hit.position.x} ${hit.position.y} ${hit.position.z}`,
+           normal: `${hit.normal.x} ${hit.normal.y} ${hit.normal.z}`,
+           title: 'Nova Informação',
+           description: 'Descreva este componente...',
+           type: 'info',
+           createdAt: serverTimestamp(),
+           updatedAt: serverTimestamp()
+         });
+         setIsAddingHotspot(false);
+         toast.success('Marcador adicionado!');
+      }
     } catch (e) {
       console.error(e);
       toast.error('Erro ao adicionar marcador.');
@@ -131,9 +196,15 @@ export default function Editor({ viewOnly = false }: { viewOnly?: boolean }) {
   };
 
   const handleUpdateHotspot = async (hotspotId: string, updates: Partial<Hotspot>) => {
-    if (viewOnly || !project) return;
+    if (viewOnly || !project || !user) return;
     try {
-      await updateDoc(doc(db, `projects/${project.id}/hotspots/${hotspotId}`), { ...updates, updatedAt: serverTimestamp() });
+      if (user.isGuest) {
+         await updateLocalHotspot(hotspotId, updates);
+         setHotspots(prev => prev.map(h => h.id === hotspotId ? { ...h, ...updates } : h));
+      } else {
+         await updateDoc(doc(db, `projects/${project.id}/hotspots/${hotspotId}`), { ...updates, updatedAt: serverTimestamp() });
+      }
+      
       if (selectedHotspot && selectedHotspot.id === hotspotId) {
         setSelectedHotspot(prev => prev ? { ...prev, ...updates } : null);
       }
@@ -165,11 +236,53 @@ export default function Editor({ viewOnly = false }: { viewOnly?: boolean }) {
        setIsGeneratingAI(false);
     }
   };
+
+  const generateThumbnail = async () => {
+    if (!project || !user) return;
+    setIsGeneratingThumbnail(true);
+    try {
+      const res = await fetch('/api/generate-thumbnail', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt: project.name + (project.description ? ' - ' + project.description : '') })
+      });
+      const data = await res.json();
+      
+      if (data.error) throw new Error(data.error);
+      
+      if (data.imageBase64) {
+        if (user.isGuest) {
+          // Local storage
+          const fetchRes = await fetch(data.imageBase64);
+          const blob = await fetchRes.blob();
+          const localUrl = await saveLocalThumbnail(project.id, blob);
+          await handleUpdateProjectSettings({ thumbnailUrl: localUrl });
+        } else {
+          // Firebase storage
+          const storageRef = ref(storage, `thumbnails/${user.uid}/${project.id}.png`);
+          await uploadString(storageRef, data.imageBase64, 'data_url');
+          const downloadUrl = await getDownloadURL(storageRef);
+          await handleUpdateProjectSettings({ thumbnailUrl: downloadUrl });
+        }
+        toast.success("Thumbnail gerado com sucesso via IA!");
+      }
+    } catch (e: any) {
+      console.error(e);
+      toast.error("Falha ao gerar o thumbnail.");
+    } finally {
+      setIsGeneratingThumbnail(false);
+    }
+  };
   
   const handleDeleteHotspot = async (hotspotId: string) => {
-    if (viewOnly || !project || !confirm("Remover este marcador?")) return;
+    if (viewOnly || !project || !user || !confirm("Remover este marcador?")) return;
     try {
-      await deleteDoc(doc(db, `projects/${project.id}/hotspots/${hotspotId}`));
+      if (user.isGuest) {
+         await deleteLocalHotspot(hotspotId);
+         setHotspots(prev => prev.filter(h => h.id !== hotspotId));
+      } else {
+         await deleteDoc(doc(db, `projects/${project.id}/hotspots/${hotspotId}`));
+      }
       setSelectedHotspot(null);
       toast.success('Marcador removido');
     } catch (e) {
@@ -233,7 +346,15 @@ export default function Editor({ viewOnly = false }: { viewOnly?: boolean }) {
             <div className="p-4 border-b border-lion-graphite-light flex justify-between items-center bg-lion-header">
               <h3 className="text-xs font-bold uppercase tracking-widest text-lion-orange">Properties</h3>
               <div className="flex gap-2">
-                <button onClick={() => setShowShareModal(true)} className="text-lion-tech-blue text-xs font-bold hover:text-white uppercase" title="Compartilhar">
+                <button 
+                   onClick={() => {
+                      if (user?.isGuest) {
+                         toast.warning("Projetos locais (Visitante) não podem ser compartilhados via link.");
+                         return;
+                      }
+                      setShowShareModal(true);
+                   }} 
+                   className="text-lion-tech-blue text-xs font-bold hover:text-white uppercase transition-colors" title="Compartilhar">
                   Share
                 </button>
               </div>
@@ -323,19 +444,38 @@ export default function Editor({ viewOnly = false }: { viewOnly?: boolean }) {
                     <div className="space-y-4">
                         <div>
                           <label className="text-[10px] text-gray-500 uppercase">Nome do Equipamento</label>
-                          <input type="text" value={project.name} onChange={async (e) => {
-                            setProject({...project, name: e.target.value});
-                            await updateDoc(doc(db, 'projects', project.id), { name: e.target.value });
-                          }} className="w-full bg-lion-black border border-lion-graphite-light rounded p-2 text-sm text-gray-200 mt-1 focus:border-lion-tech-blue outline-none" />
+                          <input type="text" value={project.name} onChange={(e) => handleUpdateProjectSettings({ name: e.target.value })} className="w-full bg-lion-black border border-lion-graphite-light rounded p-2 text-sm text-gray-200 mt-1 focus:border-lion-tech-blue outline-none" />
                         </div>
                         <div>
                           <label className="text-[10px] text-gray-500 uppercase">Cor de Fundo</label>
                           <div className="flex gap-2 mt-1">
-                             <input type="color" value={project.backgroundColor} onChange={async (e) => {
-                                setProject({...project, backgroundColor: e.target.value});
-                                await updateDoc(doc(db, 'projects', project.id), { backgroundColor: e.target.value });
-                             }} className="w-8 h-8 rounded cursor-pointer bg-lion-black border border-lion-graphite-light outline-none" />
+                             <input type="color" value={project.backgroundColor} onChange={(e) => handleUpdateProjectSettings({ backgroundColor: e.target.value })} className="w-8 h-8 rounded cursor-pointer bg-lion-black border border-lion-graphite-light outline-none" />
                              <input type="text" value={project.backgroundColor} readOnly className="flex-1 bg-lion-black border border-lion-graphite-light rounded px-2 text-sm text-gray-400 outline-none" />
+                          </div>
+                        </div>
+                        <div>
+                          <label className="text-[10px] text-gray-500 uppercase mb-1 block">Thumbnail (Preview)</label>
+                          <div className="bg-lion-black border border-lion-graphite-light rounded-lg overflow-hidden relative group">
+                             {project.thumbnailUrl ? (
+                               <div className="aspect-video relative">
+                                 <img src={project.thumbnailUrl} alt="Thumbnail preview" className="w-full h-full object-cover" />
+                                 <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center backdrop-blur-sm">
+                                    <button onClick={generateThumbnail} disabled={isGeneratingThumbnail} className="text-white text-xs font-bold uppercase tracking-widest flex items-center gap-2 hover:text-lion-tech-blue">
+                                       {isGeneratingThumbnail ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                                       Regerar IA
+                                    </button>
+                                 </div>
+                               </div>
+                             ) : (
+                               <div className="aspect-video flex flex-col items-center justify-center p-4">
+                                  <ImagePlus className="w-8 h-8 text-lion-graphite-light mb-2" />
+                                  <button onClick={generateThumbnail} disabled={isGeneratingThumbnail} className="bg-lion-graphite hover:bg-lion-graphite-light text-lion-tech-blue text-[10px] font-bold uppercase tracking-widest py-2 px-4 rounded border border-[#2D333B] flex items-center gap-2 transition-colors">
+                                     {isGeneratingThumbnail ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+                                     {isGeneratingThumbnail ? 'Gerando...' : 'Gerar com IA'}
+                                  </button>
+                                  <p className="text-[9px] text-gray-500 text-center mt-2">Dica: Adicione uma boa descrição ao título do projeto antes de gerar.</p>
+                               </div>
+                             )}
                           </div>
                         </div>
                     </div>
@@ -403,12 +543,11 @@ export default function Editor({ viewOnly = false }: { viewOnly?: boolean }) {
              </div>
 
              <div className="flex items-center gap-2 p-3 bg-lion-black rounded border border-gray-800">
-                <input type="checkbox" id="publicAccess" checked={project.isPublic} onChange={async (e) => {
-                   setProject({...project, isPublic: e.target.checked});
-                   await updateDoc(doc(db, 'projects', project.id), { isPublic: e.target.checked });
+                <input type="checkbox" id="publicAccess" checked={project.isPublic} onChange={(e) => {
+                   handleUpdateProjectSettings({ isPublic: e.target.checked });
                    toast.success(e.target.checked ? 'Projeto agora é público.' : 'Projeto agora é privado.');
                 }} className="w-4 h-4 accent-lion-tech-blue cursor-pointer" />
-                <label htmlFor="publicAccess" className="text-sm cursor-pointer">Permitir acesso público (qualquer pessoa com o link)</label>
+                <label htmlFor="publicAccess" className="text-sm cursor-pointer text-gray-300">Permitir acesso público (qualquer pessoa com o link)</label>
              </div>
           </div>
         </div>

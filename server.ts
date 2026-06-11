@@ -39,6 +39,48 @@ Instruções:
     }
   });
 
+  app.post('/api/generate-thumbnail', async (req, res) => {
+    try {
+      const { prompt } = req.body;
+      
+      const response = await ai.models.generateContent({
+        model: 'gemini-3.1-flash-image',
+        contents: {
+          parts: [
+            { text: `A high-quality, cinematic, highly detailed 3D render of an industrial machine component matching this description: ${prompt}. Dark background, studio lighting, photorealistic.` },
+          ],
+        },
+        config: {
+          imageConfig: {
+            aspectRatio: "16:9",
+            imageSize: "1K"
+          }
+        }
+      });
+
+      // Extract image data
+      let base64Image = null;
+      let mimeType = null;
+      
+      for (const part of response.candidates?.[0]?.content?.parts || []) {
+        if (part.inlineData) {
+          base64Image = part.inlineData.data;
+          mimeType = part.inlineData.mimeType || 'image/png';
+          break;
+        }
+      }
+
+      if (!base64Image) {
+        throw new Error('No image was generated');
+      }
+
+      res.json({ imageBase64: `data:${mimeType};base64,${base64Image}` });
+    } catch (e: any) {
+      console.error(e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
