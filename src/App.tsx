@@ -45,7 +45,7 @@ export default function App() {
               </ProtectedRoute>
             } />
 
-            <Route path="/training" element={
+            <Route path="/training/:projectId?" element={
               <ProtectedRoute>
                 <Navbar />
                 <TrainingModule />

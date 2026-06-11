@@ -100,6 +100,46 @@ Format your response as a JSON object with two fields: "title" and "description"
     }
   });
 
+  app.post('/api/generate-training', async (req, res) => {
+    try {
+      const { projectName, projectDescription, hotspots } = req.body;
+      
+      const prompt = `You are an expert technical trainer and industrial engineer.
+Create a structured, step-by-step procedural training guide based on the following 3D model project data.
+
+Project Name: ${projectName || 'Unknown'}
+Project Description: ${projectDescription || 'None'}
+
+Hotspots/Components available in this model:
+${hotspots.map((h: any, i: number) => `${i + 1}. ${h.title}: ${h.description}`).join('\n')}
+
+Based on the project name, description, and the available components, generate a logical sequence of steps for an inspection or operational procedure.
+Each step should have a "title" and a "desc" (description).
+Format the response strictly as a JSON object with a single field "steps", which is an array of objects.
+Example output format:
+{
+  "steps": [
+    { "title": "Step 1 Title", "desc": "Detailed instructions..." },
+    { "title": "Step 2 Title", "desc": "Detailed instructions..." }
+  ]
+}`;
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-3.1-pro-preview',
+        contents: prompt,
+        config: {
+           responseMimeType: 'application/json',
+           thinkingConfig: { thinkingBudgetTokens: 1024 },
+        }
+      });
+
+      res.json({ result: response.text });
+    } catch (e: any) {
+      console.error(e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({

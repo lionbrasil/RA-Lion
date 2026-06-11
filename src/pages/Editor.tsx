@@ -768,17 +768,26 @@ export default function Editor({ viewOnly = false }: { viewOnly?: boolean }) {
 
                   <div>
                     <h3 className="text-xs font-bold uppercase tracking-widest text-gray-400 mb-4">Ferramentas Interativas</h3>
-                    {project.modelUrl ? (
-                      <button 
-                        onClick={() => setIsAddingHotspot(!isAddingHotspot)}
-                        className={`w-full p-4 rounded flex items-center justify-center gap-2 border transition-colors ${isAddingHotspot ? 'bg-lion-tech-blue/10 border-lion-tech-blue text-lion-tech-blue' : 'bg-lion-black border-lion-graphite-light hover:border-gray-600 text-gray-300'}`}
-                      >
-                        <Plus className="w-4 h-4" />
-                        <span className="text-xs font-bold uppercase">{isAddingHotspot ? 'Selecione no modelo...' : 'Add Hotspot'}</span>
-                      </button>
-                    ) : (
-                      <p className="text-[10px] text-gray-500 italic uppercase">Faça upload para habilitar hotspots</p>
-                    )}
+                    <div className="space-y-2">
+                       {project.modelUrl ? (
+                         <button 
+                           onClick={() => setIsAddingHotspot(!isAddingHotspot)}
+                           className={`w-full p-4 rounded flex items-center justify-center gap-2 border transition-colors ${isAddingHotspot ? 'bg-lion-tech-blue/10 border-lion-tech-blue text-lion-tech-blue' : 'bg-lion-black border-lion-graphite-light hover:border-gray-600 text-gray-300'}`}
+                         >
+                           <Plus className="w-4 h-4" />
+                           <span className="text-xs font-bold uppercase">{isAddingHotspot ? 'Selecione no modelo...' : 'Add Hotspot'}</span>
+                         </button>
+                       ) : (
+                         <p className="text-[10px] text-gray-500 italic uppercase">Faça upload para habilitar hotspots</p>
+                       )}
+                       <Link 
+                         to={`/training/${project.id}`}
+                         className="w-full p-4 rounded flex items-center justify-center gap-2 border border-lion-graphite-light bg-lion-black hover:border-gray-600 text-lion-orange transition-colors"
+                       >
+                         <Sparkles className="w-4 h-4" />
+                         <span className="text-xs font-bold uppercase tracking-widest">Sessão de Treinamento</span>
+                       </Link>
+                    </div>
                   </div>
                   
                   {project.modelUrl && hotspots.length > 0 && (

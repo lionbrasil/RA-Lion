@@ -12,6 +12,7 @@ export interface Project {
   isPublic: boolean;
   createdAt: any;
   updatedAt: any;
+  trainingSteps?: { title: string; desc: string; completed?: boolean }[];
 }
 
 export interface Hotspot {
