@@ -43,7 +43,7 @@ Format your response as a JSON object with two fields: "title" and "description"
       contents: { parts },
       config: {
          responseMimeType: 'application/json',
-         thinkingConfig: { thinkingBudgetTokens: 1024 },
+         thinkingConfig: { thinkingBudget: 1024 },
       }
     });
 
@@ -125,7 +125,7 @@ Example output format:
       contents: prompt,
       config: {
          responseMimeType: 'application/json',
-         thinkingConfig: { thinkingBudgetTokens: 1024 },
+         thinkingConfig: { thinkingBudget: 1024 },
       }
     });
 

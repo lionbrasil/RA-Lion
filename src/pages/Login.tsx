@@ -39,17 +39,10 @@ export default function Login() {
 
         <div className="space-y-3">
           <button 
-            onClick={signIn}
+            onClick={signInAsGuest}
             className="w-full bg-lion-tech-blue hover:bg-blue-600 text-white p-4 rounded font-bold flex items-center justify-center gap-2 transition-colors border border-blue-400/20 uppercase tracking-widest text-[10px]"
           >
-            Acessar com Autenticação (Cloud)
-          </button>
-          
-          <button 
-            onClick={signInAsGuest}
-            className="w-full bg-lion-graphite-light hover:bg-[#3d444d] text-lion-tech-blue p-4 rounded font-bold flex items-center justify-center gap-2 transition-colors border border-[#2D333B] uppercase tracking-widest text-[10px]"
-          >
-            Acessar como Visitante (Local)
+            Acessar Plataforma Localmente
           </button>
         </div>
       </motion.div>

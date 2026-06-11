@@ -1,7 +1,16 @@
+// @ts-nocheck
 import React, { forwardRef } from 'react';
 import '@google/model-viewer';
 import { Box, Info, Video, Volume2, Link2, Image as ImageIcon } from 'lucide-react';
 import { Hotspot } from '../types';
+
+declare global {
+  namespace JSX {
+    interface IntrinsicElements {
+      'model-viewer': any;
+    }
+  }
+}
 
 interface ARViewerProps {
   src: string;

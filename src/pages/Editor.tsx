@@ -1,8 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useParams } from 'react-router-dom';
-import { doc, getDoc, updateDoc, collection, addDoc, query, onSnapshot, deleteDoc, serverTimestamp } from 'firebase/firestore';
-import { ref, uploadBytesResumable, getDownloadURL, uploadString } from 'firebase/storage';
-import { db, storage } from '../lib/firebase';
+import { useParams, Link } from 'react-router-dom';
 import { getLocalProject, updateLocalProject, getLocalHotspots, addLocalHotspot, updateLocalHotspot, deleteLocalHotspot, saveLocalModel, getLocalModelUrl, saveLocalThumbnail } from '../lib/localDb';
 import { useAuth } from '../context/AuthContext';
 import { Project, Hotspot } from '../types';
@@ -36,58 +33,35 @@ export default function Editor({ viewOnly = false }: { viewOnly?: boolean }) {
   useEffect(() => {
     if (!projectId) return;
 
-    if (user?.isGuest) {
-      const loadLocal = async () => {
-        const p = await getLocalProject(projectId);
-        if (p) {
-          if (p.modelFormat) {
-             const url = await getLocalModelUrl(projectId);
-             if (url) p.modelUrl = url;
-          }
-          setProject(p);
-        } else if (!viewOnly) {
-           toast.error("Projeto local não encontrado.");
+    const loadLocal = async () => {
+      const p = await getLocalProject(projectId);
+      if (p) {
+        if (p.modelFormat) {
+            const url = await getLocalModelUrl(projectId);
+            if (url) p.modelUrl = url;
         }
-        const hs = await getLocalHotspots(projectId);
-        setHotspots(hs);
-      };
-      loadLocal();
-      return;
-    }
-
-    const fetchProject = async () => {
-      const docRef = doc(db, 'projects', projectId);
-      const snap = await getDoc(docRef);
-      if (snap.exists()) {
-        setProject({ id: snap.id, ...snap.data() } as Project);
+        setProject(p);
+      } else if (!viewOnly) {
+          toast.error("Projeto local não encontrado.");
       }
+      const hs = await getLocalHotspots(projectId);
+      setHotspots(hs);
     };
-    fetchProject();
-
-    const q = query(collection(db, `projects/${projectId}/hotspots`));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      setHotspots(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Hotspot)));
-    });
-
-    return () => unsubscribe();
-  }, [projectId, user]);
+    loadLocal();
+  }, [projectId]);
 
   const handleUpdateProjectSettings = async (updates: Partial<Project>) => {
-    if (!project || !user) return;
+    if (!project) return;
     setProject({ ...project, ...updates });
     try {
-      if (user.isGuest) {
-        await updateLocalProject(project.id, updates);
-      } else {
-        await updateDoc(doc(db, `projects/${project.id}`), updates);
-      }
+      await updateLocalProject(project.id, updates);
     } catch(e) {
       toast.error("Erro ao atualizar projeto");
     }
   };
 
   const onDrop = async (acceptedFiles: File[]) => {
-    if (viewOnly || !project || !user) return;
+    if (viewOnly || !project) return;
     const file = acceptedFiles[0];
     if (!file) return;
 
@@ -97,54 +71,23 @@ export default function Editor({ viewOnly = false }: { viewOnly?: boolean }) {
     }
 
     setIsUploading(true);
-
-    if (user.isGuest) {
-       // Local file upload routine
-       let prog = 0;
-       const interval = setInterval(() => { prog += 10; setUploadProgress(prog); if(prog >= 100) clearInterval(interval); }, 150);
-       
-       try {
-          const localUrl = await saveLocalModel(projectId!, file);
-          await updateLocalProject(projectId!, { modelFormat: file.name.split('.').pop() });
-          
-          clearInterval(interval);
-          setUploadProgress(100);
-          setProject(prev => prev ? { ...prev, modelUrl: localUrl } : null);
-          setIsUploading(false);
-          setUploadProgress(0);
-          toast.success('Upload local concluído!');
-       } catch (e) {
-          toast.error("Erro ao salvar localmente.");
-          setIsUploading(false);
-       }
-       return;
-    }
-
-    const storageRef = ref(storage, `models/${user.uid}/${projectId}/${file.name}`);
-    const uploadTask = uploadBytesResumable(storageRef, file);
-
-    uploadTask.on('state_changed', 
-      (snapshot) => {
-        const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
-        setUploadProgress(progress);
-      },
-      (error) => {
-        toast.error('Erro no upload: ' + error.message);
-        setIsUploading(false);
-      },
-      async () => {
-        const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
-        await updateDoc(doc(db, 'projects', project.id), {
-          modelUrl: downloadURL,
-          modelFormat: file.name.split('.').pop(),
-          updatedAt: serverTimestamp()
-        });
-        setProject(prev => prev ? { ...prev, modelUrl: downloadURL } : null);
+    let prog = 0;
+    const interval = setInterval(() => { prog += 10; setUploadProgress(prog); if(prog >= 100) clearInterval(interval); }, 150);
+    
+    try {
+        const localUrl = await saveLocalModel(projectId!, file);
+        await updateLocalProject(projectId!, { modelFormat: file.name.split('.').pop() });
+        
+        clearInterval(interval);
+        setUploadProgress(100);
+        setProject(prev => prev ? { ...prev, modelUrl: localUrl } : null);
         setIsUploading(false);
         setUploadProgress(0);
         toast.success('Upload concluído!');
-      }
-    );
+    } catch (e) {
+        toast.error("Erro ao salvar o arquivo.");
+        setIsUploading(false);
+    }
   };
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
@@ -191,25 +134,10 @@ export default function Editor({ viewOnly = false }: { viewOnly?: boolean }) {
     }
 
     try {
-      if (user?.isGuest) {
-         const hs = await addLocalHotspot(project.id, `${hitPositionX} ${hitPositionY} ${hitPositionZ}`, `${hitNormalX} ${hitNormalY} ${hitNormalZ}`);
-         setHotspots(prev => [...prev, hs]);
-         setIsAddingHotspot(false);
-         toast.success('Marcador local adicionado!');
-      } else {
-         await addDoc(collection(db, `projects/${project.id}/hotspots`), {
-           projectId: project.id,
-           position: `${hitPositionX} ${hitPositionY} ${hitPositionZ}`,
-           normal: `${hitNormalX} ${hitNormalY} ${hitNormalZ}`,
-           title: 'Nova Informação',
-           description: 'Descreva este componente...',
-           type: 'info',
-           createdAt: serverTimestamp(),
-           updatedAt: serverTimestamp()
-         });
-         setIsAddingHotspot(false);
-         toast.success('Marcador adicionado!');
-      }
+      const hs = await addLocalHotspot(project.id, `${hitPositionX} ${hitPositionY} ${hitPositionZ}`, `${hitNormalX} ${hitNormalY} ${hitNormalZ}`);
+      setHotspots(prev => [...prev, hs]);
+      setIsAddingHotspot(false);
+      toast.success('Marcador adicionado!');
     } catch (e) {
       console.error(e);
       toast.error('Erro ao adicionar marcador.');
@@ -217,14 +145,10 @@ export default function Editor({ viewOnly = false }: { viewOnly?: boolean }) {
   };
 
   const handleUpdateHotspot = async (hotspotId: string, updates: Partial<Hotspot>) => {
-    if (viewOnly || !project || !user) return;
+    if (viewOnly || !project) return;
     try {
-      if (user.isGuest) {
-         await updateLocalHotspot(hotspotId, updates);
-         setHotspots(prev => prev.map(h => h.id === hotspotId ? { ...h, ...updates } : h));
-      } else {
-         await updateDoc(doc(db, `projects/${project.id}/hotspots/${hotspotId}`), { ...updates, updatedAt: serverTimestamp() });
-      }
+      await updateLocalHotspot(hotspotId, updates);
+      setHotspots(prev => prev.map(h => h.id === hotspotId ? { ...h, ...updates } : h));
       
       if (selectedHotspot && selectedHotspot.id === hotspotId) {
         setSelectedHotspot(prev => prev ? { ...prev, ...updates } : null);
@@ -244,7 +168,6 @@ export default function Editor({ viewOnly = false }: { viewOnly?: boolean }) {
        let imageBase64 = null;
        if (selectedHotspot.type === 'image' && selectedHotspot.mediaUrl) {
           try {
-             // Attempt to fetch the image and convert to base64
              const response = await fetch(selectedHotspot.mediaUrl);
              const blob = await response.blob();
              const reader = new FileReader();
@@ -294,7 +217,7 @@ export default function Editor({ viewOnly = false }: { viewOnly?: boolean }) {
   };
 
   const generateThumbnail = async () => {
-    if (!project || !user) return;
+    if (!project) return;
     setIsGeneratingThumbnail(true);
     try {
       const res = await fetch('/api/generate-thumbnail', {
@@ -311,19 +234,10 @@ export default function Editor({ viewOnly = false }: { viewOnly?: boolean }) {
       if (data.error) throw new Error(data.error);
       
       if (data.imageBase64) {
-        if (user.isGuest) {
-          // Local storage
-          const fetchRes = await fetch(data.imageBase64);
-          const blob = await fetchRes.blob();
-          const localUrl = await saveLocalThumbnail(project.id, blob);
-          await handleUpdateProjectSettings({ thumbnailUrl: localUrl });
-        } else {
-          // Firebase storage
-          const storageRef = ref(storage, `thumbnails/${user.uid}/${project.id}.png`);
-          await uploadString(storageRef, data.imageBase64, 'data_url');
-          const downloadUrl = await getDownloadURL(storageRef);
-          await handleUpdateProjectSettings({ thumbnailUrl: downloadUrl });
-        }
+        const fetchRes = await fetch(data.imageBase64);
+        const blob = await fetchRes.blob();
+        const localUrl = await saveLocalThumbnail(project.id, blob);
+        await handleUpdateProjectSettings({ thumbnailUrl: localUrl });
         toast.success("Thumbnail gerado com sucesso via IA!");
       }
     } catch (e: any) {
@@ -351,7 +265,6 @@ export default function Editor({ viewOnly = false }: { viewOnly?: boolean }) {
       canvas.height = img.height;
       
       if (ctx) {
-         // Create white background
          ctx.fillStyle = "white";
          ctx.fillRect(0, 0, canvas.width, canvas.height);
          ctx.drawImage(img, 0, 0);
@@ -369,7 +282,7 @@ export default function Editor({ viewOnly = false }: { viewOnly?: boolean }) {
   
   const handleThumbnailUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file || !project || !user) return;
+    if (!file || !project) return;
     
     if (!file.type.startsWith('image/')) {
        toast.error("Formato inválido. Envie JPG ou PNG.");
@@ -378,18 +291,8 @@ export default function Editor({ viewOnly = false }: { viewOnly?: boolean }) {
     
     setIsGeneratingThumbnail(true);
     try {
-      if (user.isGuest) {
-         const localUrl = await saveLocalThumbnail(project.id, file as any);
-         await handleUpdateProjectSettings({ thumbnailUrl: localUrl });
-      } else {
-         const storageRef = ref(storage, `thumbnails/${user.uid}/${project.id}-${Date.now()}.${file.name.split('.').pop()}`);
-         const uploadTask = uploadBytesResumable(storageRef, file);
-         await new Promise((resolve, reject) => {
-            uploadTask.on('state_changed', null, reject, () => resolve(true));
-         });
-         const downloadUrl = await getDownloadURL(storageRef);
-         await handleUpdateProjectSettings({ thumbnailUrl: downloadUrl });
-      }
+      const localUrl = await saveLocalThumbnail(project.id, file as any);
+      await handleUpdateProjectSettings({ thumbnailUrl: localUrl });
       toast.success("Thumbnail anexado com sucesso!");
     } catch (err: any) {
       console.error(err);
@@ -401,7 +304,7 @@ export default function Editor({ viewOnly = false }: { viewOnly?: boolean }) {
 
   const handleHotspotMediaUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file || !project || !user || !selectedHotspot) return;
+    if (!file || !project || !selectedHotspot) return;
     
     const isImage = file.type.startsWith('image/');
     if (!isImage) {
@@ -411,18 +314,8 @@ export default function Editor({ viewOnly = false }: { viewOnly?: boolean }) {
 
     try {
         toast.info("Fazendo upload...");
-        if (user.isGuest) {
-             const localUrl = URL.createObjectURL(file);
-             await handleUpdateHotspot(selectedHotspot.id, { mediaUrl: localUrl, type: 'image' });
-        } else {
-             const storageRef = ref(storage, `hotspots/${user.uid}/${project.id}/${selectedHotspot.id}-${Date.now()}.${file.name.split('.').pop()}`);
-             const uploadTask = uploadBytesResumable(storageRef, file);
-             await new Promise((resolve, reject) => {
-                 uploadTask.on('state_changed', null, reject, () => resolve(true));
-             });
-             const downloadUrl = await getDownloadURL(storageRef);
-             await handleUpdateHotspot(selectedHotspot.id, { mediaUrl: downloadUrl, type: 'image' });
-        }
+        const localUrl = URL.createObjectURL(file);
+        await handleUpdateHotspot(selectedHotspot.id, { mediaUrl: localUrl, type: 'image' });
         toast.success("Imagem anexada com sucesso!");
     } catch (err: any) {
         toast.error("Erro ao fazer upload.");
@@ -430,14 +323,10 @@ export default function Editor({ viewOnly = false }: { viewOnly?: boolean }) {
   };
   
   const handleDeleteHotspot = async (hotspotId: string) => {
-    if (viewOnly || !project || !user || !confirm("Remover este marcador?")) return;
+    if (viewOnly || !project || !confirm("Remover este marcador?")) return;
     try {
-      if (user.isGuest) {
-         await deleteLocalHotspot(hotspotId);
-         setHotspots(prev => prev.filter(h => h.id !== hotspotId));
-      } else {
-         await deleteDoc(doc(db, `projects/${project.id}/hotspots/${hotspotId}`));
-      }
+      await deleteLocalHotspot(hotspotId);
+      setHotspots(prev => prev.filter(h => h.id !== hotspotId));
       setSelectedHotspot(null);
       toast.success('Marcador removido');
     } catch (e) {

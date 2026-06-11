@@ -1,8 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { Box, CheckCircle2, Circle, Settings2, Sparkles, Loader2, ArrowLeft } from 'lucide-react';
-import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
-import { db } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
 import { getLocalProject, getLocalHotspots, updateLocalProject } from '../lib/localDb';
 import { Project, Hotspot } from '../types';
@@ -31,26 +29,13 @@ export default function TrainingModule() {
 
     const loadData = async () => {
       try {
-        if (user.isGuest) {
-          const p = await getLocalProject(projectId);
-          const hs = await getLocalHotspots(projectId);
-          if (p) setProject(p);
-          setHotspots(hs);
-          
-          if (p?.trainingSteps) {
-             setSteps(p.trainingSteps);
-          }
-        } else {
-          const pDoc = await getDoc(doc(db, 'projects', projectId));
-          if (pDoc.exists()) {
-             const data = { id: pDoc.id, ...pDoc.data() } as Project;
-             setProject(data);
-             if (data.trainingSteps) setSteps(data.trainingSteps);
-          }
-          
-          const q = query(collection(db, `projects/${projectId}/hotspots`));
-          const snap = await getDocs(q);
-          setHotspots(snap.docs.map(d => ({ id: d.id, ...d.data() } as Hotspot)));
+        const p = await getLocalProject(projectId);
+        const hs = await getLocalHotspots(projectId);
+        if (p) setProject(p);
+        setHotspots(hs);
+        
+        if (p?.trainingSteps) {
+           setSteps(p.trainingSteps);
         }
       } catch (e) {
         console.error(e);
@@ -92,19 +77,12 @@ export default function TrainingModule() {
             const newSteps = parsed.steps.map((s: any) => ({ ...s, completed: false }));
             setSteps(newSteps);
             toast.success("Módulo de treinamento gerado com sucesso!");
-
-            if (user.isGuest) {
-               await updateLocalProject(project.id, { trainingSteps: newSteps });
-            } else {
-               const { updateDoc } = await import('firebase/firestore');
-               await updateDoc(doc(db, 'projects', project.id), { trainingSteps: newSteps });
-            }
+            await updateLocalProject(project.id, { trainingSteps: newSteps });
          }
       }
     } catch(e: any) {
       toast.error("Erro ao gerar treinamento: " + e.message);
     } finally {
-      setIsGenerating(true); // Wait what? Should be false. Fixed below
       setIsGenerating(false);
     }
   };

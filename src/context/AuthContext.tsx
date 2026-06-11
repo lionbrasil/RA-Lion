@@ -1,7 +1,4 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged } from 'firebase/auth';
-import { auth, db } from '../lib/firebase';
-import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { toast } from 'sonner';
 
 export interface AuthUser {
@@ -39,49 +36,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setLoading(false);
         return;
     }
-
-    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
-      if (currentUser) {
-        setUser({
-           uid: currentUser.uid,
-           email: currentUser.email,
-           displayName: currentUser.displayName,
-           photoURL: currentUser.photoURL,
-           isGuest: false
-        });
-        const userRef = doc(db, 'users', currentUser.uid);
-        const userDoc = await getDoc(userRef);
-        if (!userDoc.exists()) {
-          try {
-            await setDoc(userRef, {
-              email: currentUser.email,
-              displayName: currentUser.displayName,
-              photoURL: currentUser.photoURL,
-              role: 'editor',
-              createdAt: serverTimestamp(),
-              updatedAt: serverTimestamp()
-            });
-          } catch (e) {
-            console.error('Error creating user document', e);
-          }
-        }
-      } else {
-        setUser(null);
-      }
-      setLoading(false);
-    });
-    return () => unsubscribe();
+    setLoading(false);
   }, []);
 
   const signIn = async () => {
-    try {
-      const provider = new GoogleAuthProvider();
-      await signInWithPopup(auth, provider);
-      toast.success('Logado com sucesso (Nuvem)');
-    } catch (e: any) {
-      console.error(e);
-      toast.error('Falha na autenticação');
-    }
+    // Just map to guest since we are removing Firebase
+    await signInAsGuest();
   };
 
   const signInAsGuest = async () => {
@@ -94,17 +54,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       };
       localStorage.setItem('guest_session', JSON.stringify(guestUser));
       setUser(guestUser);
-      toast.success('Entrou como visitante. Dados salvos localmente.');
+      toast.success('Entrou. Dados salvos localmente.');
   };
 
   const logOut = async () => {
     try {
-      if (user?.isGuest) {
-          localStorage.removeItem('guest_session');
-          setUser(null);
-      } else {
-          await signOut(auth);
-      }
+      localStorage.removeItem('guest_session');
+      setUser(null);
       toast.success('Desconectado com sucesso');
     } catch (e) {
       console.error(e);

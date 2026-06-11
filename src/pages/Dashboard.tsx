@@ -1,13 +1,10 @@
 import { useEffect, useState } from 'react';
-import { collection, query, where, orderBy, onSnapshot, addDoc, serverTimestamp, deleteDoc, doc } from 'firebase/firestore';
-import { db } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
 import { Link, useNavigate } from 'react-router-dom';
-import { Plus, Box, Clock, Trash, Play } from 'lucide-react';
+import { Plus, Box, Clock, Trash, Play, Wrench } from 'lucide-react';
 import { motion } from 'motion/react';
 import { toast } from 'sonner';
 import { getLocalProjects, createLocalProject, deleteLocalProject } from '../lib/localDb';
-import { Wrench } from 'lucide-react';
 
 export default function Dashboard() {
   const { user } = useAuth();
@@ -17,51 +14,19 @@ export default function Dashboard() {
 
   useEffect(() => {
     if (!user) return;
-    
-    if (user.isGuest) {
-      getLocalProjects().then(data => {
-        const userProjects = data.filter(p => p.ownerId === user.uid);
-        setProjects(userProjects.sort((a,b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()));
-        setLoading(false);
-      });
-    } else {
-      const q = query(
-        collection(db, 'projects'),
-        where('ownerId', '==', user.uid),
-        orderBy('updatedAt', 'desc')
-      );
-
-      const unsubscribe = onSnapshot(q, (snapshot) => {
-        setProjects(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-        setLoading(false);
-      });
-
-      return () => unsubscribe();
-    }
+    getLocalProjects().then(data => {
+      const userProjects = data.filter(p => p.ownerId === user.uid);
+      setProjects(userProjects.sort((a,b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()));
+      setLoading(false);
+    });
   }, [user]);
 
   const createProject = async () => {
     if (!user) return;
     try {
-      if (user.isGuest) {
-        const id = await createLocalProject(user.uid);
-        navigate(`/editor/${id}`);
-        toast.success('Projeto criado localmente!');
-      } else {
-        const docRef = await addDoc(collection(db, 'projects'), {
-          ownerId: user.uid,
-          name: 'Novo Projeto Industrial',
-          description: 'Descrição do equipamento',
-          modelUrl: '',
-          modelFormat: '',
-          backgroundColor: '#15181E',
-          isPublic: false,
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp()
-        });
-        navigate(`/editor/${docRef.id}`);
-        toast.success('Projeto criado com sucesso!');
-      }
+      const id = await createLocalProject(user.uid);
+      navigate(`/editor/${id}`);
+      toast.success('Projeto criado localmente!');
     } catch (e) {
       console.error(e);
       toast.error('Erro ao criar projeto');
@@ -71,14 +36,9 @@ export default function Dashboard() {
   const deleteProject = async (id: string) => {
     if(!confirm("Tem certeza que deseja excluir este projeto?")) return;
     try {
-      if (user?.isGuest) {
-        await deleteLocalProject(id);
-        setProjects(prev => prev.filter(p => p.id !== id));
-        toast.success('Projeto local excluído.');
-      } else {
-        await deleteDoc(doc(db, 'projects', id));
-        toast.success('Projeto excluído.');
-      }
+      await deleteLocalProject(id);
+      setProjects(prev => prev.filter(p => p.id !== id));
+      toast.success('Projeto local excluído.');
     } catch(e) {
       toast.error('Erro ao excluir');
     }
