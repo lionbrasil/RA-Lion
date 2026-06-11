@@ -1,16 +1,15 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams } from 'react-router-dom';
-import { doc, getDoc, updateDoc, collection, addDoc, query, where, onSnapshot, deleteDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, collection, addDoc, query, onSnapshot, deleteDoc, serverTimestamp } from 'firebase/firestore';
 import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 import { db, storage } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
-import { parsePragma } from '../lib/utils';
 import { Project, Hotspot } from '../types';
-import '@google/model-viewer';
-import { UploadCloud, Save, Plus, Settings, Share2, Video, Volume2, Info, Link2, X, Sparkles, Loader2 } from 'lucide-react';
+import { UploadCloud, Plus, Share2, X, Sparkles, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { QRCodeSVG } from 'qrcode.react';
 import { useDropzone } from 'react-dropzone';
+import ARViewer from '../components/ARViewer';
 
 export default function Editor({ viewOnly = false }: { viewOnly?: boolean }) {
   const { projectId } = useParams();
@@ -186,47 +185,21 @@ export default function Editor({ viewOnly = false }: { viewOnly?: boolean }) {
       {/* 3D Model Area */}
       <div className="flex-1 relative cursor-crosshair">
         {project.modelUrl ? (
-          <model-viewer
+          <ARViewer
             ref={modelRef}
             src={project.modelUrl}
-            ar
-            ar-modes="webxr scene-viewer quick-look"
-            camera-controls
-            shadow-intensity="1"
-            environment-image="neutral"
-            exposure="1"
-            auto-rotate
-            class="w-full h-full outline-none"
-            onClick={handleModelClick}
-            style={{ backgroundColor: project.backgroundColor }}
-          >
-            {hotspots.map((hs, i) => (
-              <button
-                key={hs.id}
-                className={`w-6 h-6 rounded-full border-2 border-white flex items-center justify-center transform -translate-x-1/2 -translate-y-1/2 transition-transform hover:scale-125 ${selectedHotspot?.id === hs.id ? 'bg-lion-orange scale-125' : 'bg-lion-tech-blue'}`}
-                slot={`hotspot-${hs.id}`}
-                data-position={hs.position}
-                data-normal={hs.normal}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setSelectedHotspot(hs);
-                  if (viewOnly && hs.type === 'link' && hs.linkUrl) {
-                    window.open(hs.linkUrl, '_blank');
-                  }
-                }}
-              >
-                {hs.type === 'info' && <Info className="w-3 h-3 text-white" />}
-                {hs.type === 'video' && <Video className="w-3 h-3 text-white" />}
-                {hs.type === 'audio' && <Volume2 className="w-3 h-3 text-white" />}
-                {hs.type === 'link' && <Link2 className="w-3 h-3 text-white" />}
-              </button>
-            ))}
-            
-            <div slot="ar-button" className="absolute bottom-6 right-6 bg-lion-tech-blue text-white px-6 py-3 rounded-full font-medium shadow-lg hover:bg-blue-600 transition-colors flex gap-2 items-center cursor-pointer">
-              <Box className="w-5 h-5" /> Visualizar em Realidade Aumentada
-            </div>
-            
-          </model-viewer>
+            hotspots={hotspots}
+            backgroundColor={project.backgroundColor}
+            selectedHotspotId={selectedHotspot?.id}
+            onHotspotClick={(hs) => {
+              setSelectedHotspot(hs);
+              if (viewOnly && hs.type === 'link' && hs.linkUrl) {
+                window.open(hs.linkUrl, '_blank');
+              }
+            }}
+            onModelClick={handleModelClick}
+            viewOnly={viewOnly}
+          />
         ) : (
           <div className="absolute inset-0 flex items-center justify-center cad-grid">
             {!viewOnly ? (
