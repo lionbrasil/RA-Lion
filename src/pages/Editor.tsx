@@ -42,7 +42,7 @@ export default function Editor({ viewOnly = false }: { viewOnly?: boolean }) {
     };
     fetchProject();
 
-    const q = query(collection(db, 'hotspots'), where('projectId', '==', projectId));
+    const q = query(collection(db, `projects/${projectId}/hotspots`));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       setHotspots(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Hotspot)));
     });
@@ -113,7 +113,7 @@ export default function Editor({ viewOnly = false }: { viewOnly?: boolean }) {
     }
 
     try {
-      await addDoc(collection(db, 'hotspots'), {
+      await addDoc(collection(db, `projects/${project.id}/hotspots`), {
         projectId: project.id,
         position: `${hit.position.x} ${hit.position.y} ${hit.position.z}`,
         normal: `${hit.normal.x} ${hit.normal.y} ${hit.normal.z}`,
@@ -132,9 +132,9 @@ export default function Editor({ viewOnly = false }: { viewOnly?: boolean }) {
   };
 
   const handleUpdateHotspot = async (hotspotId: string, updates: Partial<Hotspot>) => {
-    if (viewOnly) return;
+    if (viewOnly || !project) return;
     try {
-      await updateDoc(doc(db, 'hotspots', hotspotId), { ...updates, updatedAt: serverTimestamp() });
+      await updateDoc(doc(db, `projects/${project.id}/hotspots/${hotspotId}`), { ...updates, updatedAt: serverTimestamp() });
       if (selectedHotspot && selectedHotspot.id === hotspotId) {
         setSelectedHotspot(prev => prev ? { ...prev, ...updates } : null);
       }
@@ -168,9 +168,9 @@ export default function Editor({ viewOnly = false }: { viewOnly?: boolean }) {
   };
   
   const handleDeleteHotspot = async (hotspotId: string) => {
-    if (viewOnly || !confirm("Remover este marcador?")) return;
+    if (viewOnly || !project || !confirm("Remover este marcador?")) return;
     try {
-      await deleteDoc(doc(db, 'hotspots', hotspotId));
+      await deleteDoc(doc(db, `projects/${project.id}/hotspots/${hotspotId}`));
       setSelectedHotspot(null);
       toast.success('Marcador removido');
     } catch (e) {
