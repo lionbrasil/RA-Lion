@@ -1,5 +1,5 @@
 // @ts-nocheck
-import React, { forwardRef } from 'react';
+import React, { forwardRef, useRef, useImperativeHandle } from 'react';
 import '@google/model-viewer';
 import { Box, Info, Video, Volume2, Link2, Image as ImageIcon } from 'lucide-react';
 import { Hotspot } from '../types';
@@ -31,13 +31,42 @@ const ARViewer = forwardRef<any, ARViewerProps>(({
   onModelClick,
   viewOnly = false
 }, ref) => {
+  const innerRef = useRef<any>(null);
+
+  useImperativeHandle(ref, () => ({
+    get element() {
+      return innerRef.current;
+    },
+    positionAndNormalFromPoint: (x: number, y: number) => {
+      return innerRef.current?.positionAndNormalFromPoint?.(x, y);
+    },
+    getBoundingClientRect: () => {
+      return innerRef.current?.getBoundingClientRect?.();
+    },
+    resetCamera: () => {
+      if (innerRef.current) {
+        innerRef.current.cameraOrbit = '0deg 75deg 105%';
+        innerRef.current.cameraTarget = 'auto auto auto';
+        innerRef.current.fieldOfView = 'auto';
+      }
+    },
+    focusHotspot: (hs: Hotspot) => {
+      if (innerRef.current && hs.position) {
+        innerRef.current.cameraTarget = hs.position;
+      }
+    }
+  }));
+
   return (
     <model-viewer
-      ref={ref}
+      ref={innerRef}
       src={src}
       ar
       ar-modes="webxr scene-viewer quick-look"
+      ar-scale="auto"
       camera-controls
+      touch-action="pan-y"
+      interaction-prompt="auto"
       shadow-intensity="1"
       environment-image="neutral"
       exposure="1"
@@ -49,7 +78,7 @@ const ARViewer = forwardRef<any, ARViewerProps>(({
       {hotspots.map((hs) => (
         <button
           key={hs.id}
-          className={`w-6 h-6 rounded-full border-2 border-white flex items-center justify-center transform -translate-x-1/2 -translate-y-1/2 transition-transform hover:scale-125 ${selectedHotspotId === hs.id ? 'bg-lion-orange scale-125' : 'bg-lion-tech-blue'}`}
+          className="min-w-[44px] min-h-[44px] flex items-center justify-center transform -translate-x-1/2 -translate-y-1/2 cursor-pointer group focus:outline-none"
           slot={`hotspot-${hs.id}`}
           data-position={hs.position}
           data-normal={hs.normal}
@@ -57,17 +86,28 @@ const ARViewer = forwardRef<any, ARViewerProps>(({
             e.stopPropagation();
             onHotspotClick?.(hs, e);
           }}
+          aria-label={hs.title || 'Marcador AR'}
         >
-          {hs.type === 'info' && <Info className="w-3 h-3 text-white" />}
-          {hs.type === 'video' && <Video className="w-3 h-3 text-white" />}
-          {hs.type === 'audio' && <Volume2 className="w-3 h-3 text-white" />}
-          {hs.type === 'link' && <Link2 className="w-3 h-3 text-white" />}
-          {hs.type === 'image' && <ImageIcon className="w-3 h-3 text-white" />}
+          <div className={`w-7 h-7 rounded-full border-2 border-white flex items-center justify-center transition-all duration-200 group-hover:scale-125 shadow-lg ${
+            selectedHotspotId === hs.id 
+              ? 'bg-lion-orange scale-125 ring-4 ring-lion-orange/40' 
+              : 'bg-lion-tech-blue'
+          }`}>
+            {hs.type === 'info' && <Info className="w-3.5 h-3.5 text-white" />}
+            {hs.type === 'video' && <Video className="w-3.5 h-3.5 text-white" />}
+            {hs.type === 'audio' && <Volume2 className="w-3.5 h-3.5 text-white" />}
+            {hs.type === 'link' && <Link2 className="w-3.5 h-3.5 text-white" />}
+            {hs.type === 'image' && <ImageIcon className="w-3.5 h-3.5 text-white" />}
+          </div>
         </button>
       ))}
 
-      <div slot="ar-button" className="absolute bottom-6 right-6 bg-lion-tech-blue text-white px-6 py-3 rounded-full font-medium shadow-lg hover:bg-blue-600 transition-colors flex gap-2 items-center cursor-pointer">
-        <Box className="w-5 h-5" /> Visualizar em Realidade Aumentada
+      <div 
+        slot="ar-button" 
+        className="absolute bottom-6 right-4 sm:right-6 bg-lion-tech-blue hover:bg-blue-600 active:bg-blue-700 text-white min-h-[48px] px-5 py-3 rounded-2xl font-semibold shadow-2xl transition-all flex gap-2.5 items-center cursor-pointer z-30 backdrop-blur-xl border border-white/25 active:scale-95"
+      >
+        <Box className="w-5 h-5 text-white" />
+        <span className="text-sm tracking-wide">Abrir em Realidade Aumentada</span>
       </div>
     </model-viewer>
   );
@@ -76,3 +116,4 @@ const ARViewer = forwardRef<any, ARViewerProps>(({
 ARViewer.displayName = 'ARViewer';
 
 export default ARViewer;
+

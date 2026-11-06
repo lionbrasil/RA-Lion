@@ -21,6 +21,10 @@ export interface Project {
   createdAt: any;
   updatedAt: any;
   trainingSteps?: { title: string; desc: string; completed?: boolean }[];
+  matrixLinked?: boolean;
+  matrixSyncedAt?: string;
+  matrixVersion?: number;
+  matrixSourceId?: string;
 }
 
 export interface Hotspot {

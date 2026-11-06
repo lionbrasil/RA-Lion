@@ -163,3 +163,152 @@ export const importProjectData = async (file: File) => {
     await set(`thumbnail_${data.project.id}`, thumb);
   }
 };
+
+export const transferProjectToMatrix = async (projectId: string) => {
+  const project = await getLocalProject(projectId);
+  if (!project) throw new Error('Projeto local não encontrado.');
+
+  const hotspots = await getLocalHotspots(projectId);
+  const modelFile: File | undefined = await get(`model_${projectId}`);
+  const thumbnailBlob: Blob | undefined = await get(`thumbnail_${projectId}`);
+
+  const toBase64 = (blob: Blob) =>
+    new Promise<string>((resolve) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result as string);
+      reader.readAsDataURL(blob);
+    });
+
+  let modelBase64 = null;
+  let modelType = '';
+  let modelName = '';
+  if (modelFile) {
+    modelBase64 = await toBase64(modelFile);
+    modelType = modelFile.type || 'model/gltf-binary';
+    modelName = modelFile.name || `model_${projectId}.glb`;
+  }
+
+  let thumbnailBase64 = null;
+  let thumbnailType = '';
+  if (thumbnailBlob) {
+    thumbnailBase64 = await toBase64(thumbnailBlob);
+    thumbnailType = thumbnailBlob.type || 'image/png';
+  }
+
+  const res = await fetch('/api/matrix/transfer', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      project,
+      hotspots,
+      modelBase64,
+      modelType,
+      modelName,
+      thumbnailBase64,
+      thumbnailType
+    })
+  });
+
+  const data = await res.json();
+  if (!res.ok || data.error) {
+    throw new Error(data.error || 'Falha ao transferir projeto para a matriz.');
+  }
+
+  await updateLocalProject(projectId, {
+    matrixLinked: true,
+    matrixSyncedAt: data.matrixSyncedAt,
+    matrixVersion: data.matrixVersion
+  });
+
+  return data;
+};
+
+export const syncProjectWithMatrix = async (projectId: string) => {
+  const project = await getLocalProject(projectId);
+  if (!project) throw new Error('Projeto não encontrado');
+  const hotspots = await getLocalHotspots(projectId);
+
+  const res = await fetch(`/api/matrix/sync/${projectId}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      name: project.name,
+      description: project.description,
+      backgroundColor: project.backgroundColor,
+      trainingSteps: project.trainingSteps,
+      hotspots
+    })
+  });
+
+  const data = await res.json();
+  if (!res.ok || data.error) {
+    throw new Error(data.error || 'Falha ao sincronizar com a matriz.');
+  }
+
+  await updateLocalProject(projectId, {
+    matrixSyncedAt: data.matrixSyncedAt,
+    matrixVersion: data.matrixVersion
+  });
+
+  return data;
+};
+
+export const fetchMatrixProject = async (id: string) => {
+  const res = await fetch(`/api/matrix/projects/${id}`);
+  const data = await res.json();
+  if (!res.ok || data.error) {
+    throw new Error(data.error || 'Projeto não encontrado na matriz.');
+  }
+  return data;
+};
+
+export const importProjectFromMatrix = async (matrixIdOrUrl: string, currentUserId?: string) => {
+  const cleanId = matrixIdOrUrl.trim().replace(/^.*\/viewer\//, '').replace(/[?#].*$/, '');
+  if (!cleanId) throw new Error('ID ou URL da matriz inválido.');
+
+  const data = await fetchMatrixProject(cleanId);
+  const p = data.project;
+
+  const importedProject: Project = {
+    ...p,
+    id: p.id,
+    ownerId: currentUserId || p.ownerId || 'guest',
+    matrixLinked: true,
+    matrixSyncedAt: data.matrixSyncedAt,
+    matrixVersion: data.matrixVersion,
+    matrixSourceId: cleanId,
+    modelUrl: data.modelUrl || `/api/matrix/models/${cleanId}`
+  };
+
+  const existing = await getLocalProjects();
+  const filtered = existing.filter(x => x.id !== p.id);
+  await setLocalProjects([...filtered, importedProject]);
+
+  if (data.hotspots) {
+    const existingH = (await get('hotspots')) as Hotspot[] || [];
+    const filteredH = existingH.filter(h => h.projectId !== p.id);
+    await set('hotspots', [...filteredH, ...data.hotspots]);
+  }
+
+  try {
+    const modelFetch = await fetch(`/api/matrix/models/${cleanId}`);
+    if (modelFetch.ok) {
+      const blob = await modelFetch.blob();
+      const filename = `model_${cleanId}.${p.modelFormat || 'glb'}`;
+      const file = new File([blob], filename, { type: blob.type || 'model/gltf-binary' });
+      await set(`model_${cleanId}`, file);
+    }
+  } catch (err) {
+    console.warn('Could not cache matrix model locally, will stream from server:', err);
+  }
+
+  return importedProject;
+};
+
+export const getMatrixProjectsList = async () => {
+  const res = await fetch('/api/matrix/projects');
+  const data = await res.json();
+  if (!res.ok || data.error) return [];
+  return data.projects || [];
+};
+
